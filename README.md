@@ -1,148 +1,137 @@
-# ESPN Fantasy Football Stats CLI
+# ESPN Fantasy Football CLI
 
-A Rust command-line tool for fetching **fantasy football player stats** from the ESPN Fantasy Football API (private or public leagues).  
-This project is designed to query ESPN’s hidden API with flexible filters, making it easy to pull player information into scripts, databases, or dashboards.
+A command-line tool written in Rust for fetching **player stats** from the private ESPN Fantasy Football API.  
+This project is designed for **data collection, analysis, and future persistence** into databases like PostgreSQL.  
 
 ---
 
 ## Features
 
-- Query ESPN Fantasy Football stats programmatically.
-- Filter by:
-  - **Player name**
-  - **Position(s)** (QB, RB, WR, TE, K, D/ST, FLEX)
-  - **Active status**
-- Works with **private leagues** using ESPN cookies (`SWID` and `espn_s2`).
-- Supports specifying **season** and **week**.
-- CLI built with [`structopt`](https://crates.io/crates/structopt).
-- JSON response parsing with [`serde_json`](https://docs.rs/serde_json).
-- Ready for expansion (e.g., saving results to Postgres).
+- 🔎 **Query players** by name, position(s), or both.  
+- 📅 **Filter by season and week(s)** (single or multiple).  
+- 🏈 **Outputs player ID, name, and weekly points**.  
+- 📦 Optional `--json` flag for machine-readable output.  
+- 🔑 Supports **private leagues** using cookies (`SWID` and `espn_s2`).
 
 ---
 
 ## Installation
 
-### Prerequisites
-- Rust (stable)  
-- Cargo  
-- ESPN Fantasy Football account  
-
-### Build
-
 ```bash
-git clone <repo-url>
+git clone https://github.com/yourusername/espn-ffl.git
 cd espn-ffl
 cargo build --release
 ```
+
+The compiled binary will be located in `target/release/espn-ffl`.
+
+---
+
+## Authentication: Cookies
+
+Private leagues require authentication using cookies (`SWID` and `espn_s2`).  
+
+### Step 1: Open your browser’s Developer Tools
+
+- Go to your ESPN Fantasy Football league page.  
+- Log in if necessary.  
+
+### Step 2: Inspect Network Requests
+
+- Open **Developer Tools** (F12 or right-click → Inspect).  
+- Navigate to the **Network** tab.  
+- Reload the page and look for requests to:
+
+  ```bash
+  https://fantasy.espn.com/apis/v3/games/ffl/...
+  ```
+
+### Step 3: Find the Cookies
+
+- In the request **Headers**, locate the `cookie` field.  
+- Copy values for:
+  - `SWID={...}`  
+  - `espn_s2={...}`  
+
+### Step 4: Store Them as Environment Variables
+
+```bash
+export ESPN_SWID="{your-swid-here}"
+export ESPN_S2="{your-espn_s2-here}"
+```
+
+This way the CLI automatically attaches your credentials.
 
 ---
 
 ## Usage
 
-The CLI uses `structopt` for parsing. Example:
+### Basic Command
 
 ```bash
-./target/release/espn-ffl get   --league-id 123456   --season 2025   --week 3   -p QB -p WR -p RB
+espn-ffl get --league-id 123456 --week 3 --season 2024
 ```
 
-### Arguments
-
-- `--league-id, -l`  
-  ESPN league ID (falls back to `$ESPN_FFL_LEAGUE_ID` env var).
-
-- `--player-name, -n`  
-  Filter players by last name.
-
-- `--positions, -p`  
-  One or more player positions (`QB`, `RB`, `WR`, `TE`, `K`, `D`/`DEF`, `FLEX`).
-
-- `--season, -s`  
-  Season year (default: `2025`).
-
-- `--week, -w`  
-  Scoring period/week.
-
----
-
-## Private Leagues: Cookies
-
-To access **private leagues**, ESPN requires authentication cookies. You need two values:
-
-- `SWID`
-- `espn_s2`
-
-### How to Find Them
-
-1. **Log in** to ESPN Fantasy Football in your browser.
-2. Open **Developer Tools** (usually `F12` or `Ctrl+Shift+I`).
-3. Go to the **Application** tab (in Chrome/Edge) or **Storage** tab (in Firefox).
-4. In the left sidebar, expand **Cookies** and select `https://www.espn.com`.
-5. Find the entries for:
-   - `SWID`
-   - `espn_s2`
-6. Copy the full values exactly as shown.
-
-⚠️ **Notes:**
-- `SWID` usually looks like a **UUID in curly braces**, e.g. `{12345678-90AB-CDEF-1234-567890ABCDEF}`.
-- `espn_s2` is a long alphanumeric string.
-
-### Set Them as Environment Variables
+### Query by Player Name
 
 ```bash
-export ESPN_SWID="{12345678-90AB-CDEF-1234-567890ABCDEF}"
-export ESPN_S2="AEB3VYx3aLz0N...rest_of_string..."
+espn-ffl get --league-id 123456 -n "Patrick Mahomes" --week 5
 ```
 
-The CLI will automatically use these values when making requests.
-
----
-
-## Example Queries
-
-### Get all QBs for Week 1 of 2025
+### Query by Position(s)
 
 ```bash
-espn-ffl get -l 123456 -s 2025 -w 1 -p QB
+espn-ffl get --league-id 123456 -p QB -p WR --week 2
 ```
 
-### Get all WRs named “Smith”
+### Multi-Week Query
 
 ```bash
-espn-ffl get -l 123456 -s 2025 -w 2 -p WR -n Smith
+espn-ffl get --league-id 123456 --week 2 --week 3 --week 4
 ```
 
-### Get all active players (default)
+### JSON Output
 
 ```bash
-espn-ffl get -l 123456 -s 2025 -w 3
+espn-ffl get --league-id 123456 -n "Josh Allen" --week 1 --json
 ```
 
 ---
 
-## Output
+## Example Output
 
-Currently the CLI prints player names (with `serde_json::Value` parsing):
+**Default (human-readable):**
 
+```bash
+12345 Patrick Mahomes [{ week: 3, points: 27.4 }]
+67890 Travis Kelce [{ week: 3, points: 18.7 }]
 ```
-"Patrick Mahomes"
-"Justin Jefferson"
-"Christian McCaffrey"
-```
 
-This can be expanded later into **structured output** (CSV, JSON, or database insertions).
+**With `--json`:**
+
+```json
+[
+  {
+    "id": 12345,
+    "name": "Patrick Mahomes",
+    "weeks": [
+      { "week": 3, "points": 27.4 }
+    ]
+  },
+  {
+    "id": 67890,
+    "name": "Travis Kelce",
+    "weeks": [
+      { "week": 3, "points": 18.7 }
+    ]
+  }
+]
+```
 
 ---
 
 ## Next Steps
 
-- [ ] Add **Postgres integration** for persistent storage.
-- [ ] Expand `view` support (`mDraftDetail`, `modular`, etc.).
-- [ ] Strongly typed structs for deserializing player data.
-- [ ] Add subcommands for different ESPN API endpoints.
-- [ ] Support exporting results to CSV/JSON.
-
----
-
-## License
-
-MIT License © 2025
+- Persist results into **PostgreSQL** for later querying.  
+- Extend filters (injury status, active players, etc.).  
+- Add support for **team-level** stats and matchups.  
