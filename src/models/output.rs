@@ -20,6 +20,8 @@ pub struct PlayerWeekPoints {
     pub id: u64,
     /// Player full name.
     pub name: String,
+    /// Player position
+    pub position: String,
     /// Points for the selected weeks.
     pub weeks: Vec<WeekPoints>,
 }
