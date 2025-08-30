@@ -1,17 +1,20 @@
 # ESPN Fantasy Football CLI
 
-A command-line tool written in Rust for fetching **player stats** from the private ESPN Fantasy Football API.  
-This project is designed for **data collection, analysis, and future persistence** into databases like PostgreSQL.  
+A command-line tool written in Rust for fetching **player stats** from the private ESPN Fantasy Football API.
 
 ---
 
 ## Features
 
 - 🔎 **Query players** by name, position(s), or both.  
-- 📅 **Filter by season and week(s)** (single or multiple).  
+- 📅 **Filter by season and week** (single week at a time).  
 - 🏈 **Outputs player ID, name, and weekly points**.  
 - 📦 Optional `--json` flag for machine-readable output.  
-- 🔑 Supports **private leagues** using cookies (`SWID` and `espn_s2`).
+- 🔑 Supports **private leagues** using cookies (`SWID` and `espn_s2`).  
+- 📊 **Sorts results by points (descending)** for quick analysis.  
+- ⚡ **Supports projected points** with `--proj`.
+- 🗄️ **Caches league settings** (`mSettings`) in `~/.cache/espn-ffl` for reuse across queries.  
+- 🐞 **Debug mode**: use `--debug` to print the URL and headers of the request.
 
 ---
 
@@ -84,27 +87,43 @@ espn-ffl get --league-id 123456 -n "Patrick Mahomes" --week 5
 espn-ffl get --league-id 123456 -p QB -p WR --week 2
 ```
 
-### Multi-Week Query
-
-```bash
-espn-ffl get --league-id 123456 --week 2 --week 3 --week 4
-```
-
 ### JSON Output
 
 ```bash
 espn-ffl get --league-id 123456 -n "Josh Allen" --week 1 --json
 ```
 
+### Projected Points
+
+```bash
+espn-ffl get --league-id 123456 --week 1 --proj
+```
+
+### Cache League Settings
+
+```bash
+# Fetch and cache league scoring/roster settings in ~/.cache/espn-ffl
+espn-ffl get league-data --league-id 123456 --season 2024
+```
+
+### Debug Mode
+
+```bash
+espn-ffl get --league-id 123456 --week 1 --debug
+```
+
+This will print the full URL and request headers before executing the query.
+
 ---
 
 ## Example Output
 
-**Default (human-readable):**
+**Default (human-readable, sorted by points):**
 
 ```bash
-12345 Patrick Mahomes [{ week: 3, points: 27.4 }]
-67890 Travis Kelce [{ week: 3, points: 18.7 }]
+12345 Patrick Mahomes [week 3] 27.40
+67890 Travis Kelce [week 3] 18.70
+13579 Tyreek Hill [week 3] 16.25
 ```
 
 **With `--json`:**
@@ -114,24 +133,16 @@ espn-ffl get --league-id 123456 -n "Josh Allen" --week 1 --json
   {
     "id": 12345,
     "name": "Patrick Mahomes",
-    "weeks": [
-      { "week": 3, "points": 27.4 }
-    ]
+    "week": 3,
+    "projected": false,
+    "points": 27.4
   },
   {
     "id": 67890,
     "name": "Travis Kelce",
-    "weeks": [
-      { "week": 3, "points": 18.7 }
-    ]
+    "week": 3,
+    "projected": false,
+    "points": 18.7
   }
 ]
 ```
-
----
-
-## Next Steps
-
-- Persist results into **PostgreSQL** for later querying.  
-- Extend filters (injury status, active players, etc.).  
-- Add support for **team-level** stats and matchups.  
