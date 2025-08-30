@@ -1,7 +1,6 @@
 //! Common helpers: cookie header builder and week-spec parsing.
 
 use reqwest::header::{ACCEPT, COOKIE, HeaderMap, HeaderValue};
-use std::collections::BTreeSet;
 use std::error::Error;
 
 /// Project-standard Result with Send+Sync error.
@@ -22,27 +21,4 @@ pub fn maybe_cookie_header_map() -> Result<Option<HeaderMap>> {
     } else {
         Ok(None)
     }
-}
-
-/// Parse a week spec like `1`, `1,3,5`, `2-6`, `1-4,6,8-10`.
-///
-/// - Returns a sorted, deduplicated `Vec<u16>`.
-/// - Errors on invalid ranges (e.g., `6-2`) or non-numeric input.
-pub fn parse_weeks_spec(spec: &str) -> Result<Vec<u16>> {
-    let mut set = BTreeSet::new();
-    for part in spec.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()) {
-        if let Some((a, b)) = part.split_once('-') {
-            let start: u16 = a.trim().parse()?;
-            let end: u16 = b.trim().parse()?;
-            if start > end {
-                return Err(format!("invalid week range: {part}").into());
-            }
-            for w in start..=end {
-                set.insert(w);
-            }
-        } else {
-            set.insert(part.parse()?);
-        }
-    }
-    Ok(set.into_iter().collect())
 }

@@ -24,14 +24,6 @@ impl FromStr for Availability {
     }
 }
 
-pub fn map_availability(availability: Availability) -> Option<Vec<String>> {
-    match availability {
-        Availability::All => None,
-        Availability::Free => Some(vec!["FREEAGENT".into(), "WAIVERS".into()]),
-        Availability::OnTeam => Some(vec!["ONTEAM".into()]),
-    }
-}
-
 /// Known ESPN lineup positions.
 ///
 /// Backed by `u8` to match ESPN slot ID ranges.
@@ -70,12 +62,12 @@ impl FromStr for Position {
 impl fmt::Display for Position {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let s = match self {
-            Position::QB   => "QB",
-            Position::RB   => "RB",
-            Position::WR   => "WR",
-            Position::TE   => "TE",
-            Position::K    => "K",
-            Position::D    => "D/ST",
+            Position::QB => "QB",
+            Position::RB => "RB",
+            Position::WR => "WR",
+            Position::TE => "TE",
+            Position::K => "K",
+            Position::D => "D/ST",
             Position::FLEX => "FLEX",
         };
         write!(f, "{}", s)

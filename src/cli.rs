@@ -1,20 +1,35 @@
 //! CLI argument definitions (using structopt).
 
-use crate::cli_types::{Availability, Position};
 use structopt::StructOpt;
 
-/// Top-level CLI for ESPN Fantasy Football utilities.
+use crate::cli_types::Position;
+
 #[derive(Debug, StructOpt)]
-pub enum ESPN {
+pub enum GetCmd {
+    /// Fetch and optionally refresh cached league settings for a season + league
+    LeagueData {
+        /// League ID (or set `ESPN_FFL_LEAGUE_ID` env var).
+        #[structopt(long, short)]
+        league_id: Option<u32>,
+
+        /// Force refresh from ESPN, overwriting the cache.
+        #[structopt(long)]
+        refresh: bool,
+
+        /// Season year (e.g. 2025).
+        #[structopt(default_value = "2025", long, short)]
+        season: u16,
+
+        /// Print the cached path and a short summary when done.
+        #[structopt(long)]
+        verbose: bool,
+    },
+
     /// Get players and their weekly fantasy points.
     ///
-    /// This subcommand queries ESPN's `/players` endpoint with `kona_player_info`
-    /// and filters results client-side for the requested weeks.
-    Get {
-        /// Availability filter: all | free | onteam
-        #[structopt(default_value = "all", long, short)]
-        availability: Availability,
-
+    /// Queries `/players?view=kona_player_info` and computes weekly totals
+    /// using league settings (read from cache or fetched if missing).
+    PlayerData {
         /// Print request URL and headers for debugging.
         #[structopt(long)]
         debug: bool,
@@ -25,7 +40,11 @@ pub enum ESPN {
 
         /// League ID (or set `ESPN_FFL_LEAGUE_ID` env var).
         #[structopt(long, short)]
-        league_id: Option<u64>,
+        league_id: Option<u32>,
+
+        /// Limit the number of results
+        #[structopt(long)]
+        limit: Option<u32>,
 
         /// Filter by player last name (substring match).
         #[structopt(long, short = "n")]
@@ -43,13 +62,14 @@ pub enum ESPN {
         #[structopt(default_value = "2025", long, short)]
         season: u16,
 
-        /// Single week (mutually exclusive with `--weeks`).
-        #[structopt(long, short)]
-        week: Option<u16>,
-
-        /// Week spec: e.g. `1`, `1,3,5`, `2-6`, `1-4,6,8-10`.
-        /// Mutually exclusive with `--week`.
-        #[structopt(long)]
-        weeks: Option<String>,
+        /// Single week.
+        #[structopt(default_value = "1", long, short)]
+        week: u16,
     },
+}
+
+#[derive(Debug, StructOpt)]
+pub enum ESPN {
+    /// Group for read operations
+    Get(GetCmd),
 }
