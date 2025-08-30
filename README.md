@@ -69,41 +69,48 @@ This way the CLI automatically attaches your credentials.
 
 ## Usage
 
+### Cache League Settings
+
+```bash
+# Fetch and cache league scoring/roster settings in ~/.cache/espn-ffl
+# This is run by default for any 'get player-data' command
+espn-ffl get league-data --league-id 123456 --season 2024
+```
+
 ### Basic Command
 
 ```bash
-espn-ffl get --league-id 123456 --week 3 --season 2024
+espn-ffl get player-data --week 3 --season 2024
 ```
 
 ### Query by Player Name
 
 ```bash
-espn-ffl get --league-id 123456 -n "Patrick Mahomes" --week 5
+espn-ffl get player-data -n "Patrick Mahomes" --week 5
 ```
 
 ### Query by Position(s)
 
 ```bash
-espn-ffl get --league-id 123456 -p QB -p WR --week 2
+espn-ffl get player-data -p QB -p WR --week 2
+```
+
+### Query data from a different league
+
+```bash
+espn-ffl get player-data --league-id 123456 -p QB -p WR --week 2
 ```
 
 ### JSON Output
 
 ```bash
-espn-ffl get --league-id 123456 -n "Josh Allen" --week 1 --json
+espn-ffl get player-data -n "Josh Allen" --week 1 --json
 ```
 
 ### Projected Points
 
 ```bash
-espn-ffl get --league-id 123456 --week 1 --proj
-```
-
-### Cache League Settings
-
-```bash
-# Fetch and cache league scoring/roster settings in ~/.cache/espn-ffl
-espn-ffl get league-data --league-id 123456 --season 2024
+espn-ffl get player-data --league-id 123456 --week 1 --proj
 ```
 
 ### Debug Mode
