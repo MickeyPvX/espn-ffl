@@ -1,6 +1,4 @@
 // src/espn/cache_settings.rs
-use reqwest::Client;
-use reqwest::header::HeaderMap;
 use serde_json::Value;
 
 use crate::FlexResult;
@@ -11,8 +9,6 @@ use crate::espn::{http::get_league_settings, types::LeagueSettings};
 /// Try to load league settings from .cache first. If missing or `refresh == true`,
 /// fetch from ESPN (`view=mSettings`), extract the `"settings"` object, and re-write the cache.
 pub async fn load_or_fetch_league_settings(
-    client: &Client,
-    headers: HeaderMap,
     league_id: u32,
     refresh: bool,
     season: u16,
@@ -32,7 +28,7 @@ pub async fn load_or_fetch_league_settings(
 
     // 2) Fetch from API (raw ESPN payload with `"settings"`)
     let parsed: LeagueEnvelope =
-        serde_json::from_value(get_league_settings(client, headers, league_id, season).await?)?;
+        serde_json::from_value(get_league_settings(league_id, season).await?)?;
 
     // 3) Write cache (store the raw ESPN payload so future reads can pluck "settings")
     if let Ok(json_str) = serde_json::to_string_pretty(&parsed.settings) {

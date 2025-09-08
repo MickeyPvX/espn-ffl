@@ -4,25 +4,26 @@ use std::convert::TryFrom;
 use std::fmt;
 use std::str::FromStr;
 
-/// Availability filter for ESPN players, mapped to filterStatuses
-#[derive(Clone, Copy, Debug)]
-pub enum Availability {
-    All,    // no filterStatuses
-    Free,   // FREEAGENT + WAIVERS
-    OnTeam, // ONTEAM
-}
+// TODO - Re-implement with proper query for player data
+// /// Availability filter for ESPN players, mapped to filterStatuses
+// #[derive(Clone, Copy, Debug)]
+// pub enum Availability {
+//     All,    // no filterStatuses
+//     Free,   // FREEAGENT + WAIVERS
+//     OnTeam, // ONTEAM
+// }
 
-impl FromStr for Availability {
-    type Err = String;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "all" => Ok(Self::All),
-            "free" => Ok(Self::Free),
-            "onteam" => Ok(Self::OnTeam),
-            other => Err(format!("Invalid availability: {other}")),
-        }
-    }
-}
+// impl FromStr for Availability {
+//     type Err = String;
+//     fn from_str(s: &str) -> Result<Self, Self::Err> {
+//         match s.to_lowercase().as_str() {
+//             "all" => Ok(Self::All),
+//             "free" => Ok(Self::Free),
+//             "onteam" => Ok(Self::OnTeam),
+//             other => Err(format!("Invalid availability: {other}")),
+//         }
+//     }
+// }
 
 /// Known ESPN lineup positions.
 ///
