@@ -19,7 +19,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
       - name: Generate code coverage
         run: |
           cargo +nightly tarpaulin \
