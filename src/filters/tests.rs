@@ -107,14 +107,14 @@ mod filter_tests {
     }
 
     #[test]
-    fn test_into_header_value_trait() {
+    fn test_to_header_value_trait() {
         let val = Val { value: "test" };
-        let header_value = val.into_header_value().unwrap();
+        let header_value = val.to_header_value().unwrap();
         assert_eq!(header_value.to_str().unwrap(), r#"{"value":"test"}"#);
     }
 
     #[test]
-    fn test_into_header_value_complex() {
+    fn test_to_header_value_complex() {
         let filter = PlayersFilter {
             limit: Some(25),
             filter_name: Some(Val {
@@ -122,7 +122,7 @@ mod filter_tests {
             }),
             ..PlayersFilter::default()
         };
-        let header_value = filter.into_header_value().unwrap();
+        let header_value = filter.to_header_value().unwrap();
         let header_str = header_value.to_str().unwrap();
 
         // Should be valid JSON
@@ -229,7 +229,7 @@ mod filter_tests {
             build_players_filter(Some(20), Some("Josh".to_string()), Some(slots), Some(true));
 
         // Convert to header value to ensure it works end-to-end
-        let header_value = filter.into_header_value().unwrap();
+        let header_value = filter.to_header_value().unwrap();
         let header_str = header_value.to_str().unwrap();
 
         // Should be valid JSON containing our parameters

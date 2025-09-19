@@ -3,7 +3,7 @@
 use clap::Parser;
 use espn_ffl::{
     cli::{Commands, GetCmd, ESPN},
-    commands::{handle_league_data, handle_player_data},
+    commands::{handle_league_data, handle_player_data, PlayerDataParams},
     Result,
 };
 
@@ -32,9 +32,9 @@ async fn main() -> Result<()> {
                 season,
                 week,
             } => {
-                handle_player_data(
+                handle_player_data(PlayerDataParams {
                     debug,
-                    json,
+                    as_json: json,
                     league_id,
                     limit,
                     player_name,
@@ -42,7 +42,7 @@ async fn main() -> Result<()> {
                     projected,
                     season,
                     week,
-                )
+                })
                 .await?
             }
         },

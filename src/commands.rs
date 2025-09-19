@@ -13,6 +13,20 @@ use crate::{
     Result, LEAGUE_ID_ENV_VAR,
 };
 
+/// Parameters for the player data command
+#[derive(Debug)]
+pub struct PlayerDataParams {
+    pub debug: bool,
+    pub as_json: bool,
+    pub league_id: Option<LeagueId>,
+    pub limit: Option<u32>,
+    pub player_name: Option<String>,
+    pub positions: Option<Vec<Position>>,
+    pub projected: bool,
+    pub season: Season,
+    pub week: Week,
+}
+
 #[cfg(test)]
 mod tests;
 
@@ -41,37 +55,27 @@ pub async fn handle_league_data(
 }
 
 /// Handle the player data command
-pub async fn handle_player_data(
-    debug: bool,
-    as_json: bool,
-    league_id: Option<LeagueId>,
-    limit: Option<u32>,
-    player_name: Option<String>,
-    positions: Option<Vec<Position>>,
-    projected: bool,
-    season: Season,
-    week: Week,
-) -> Result<()> {
-    let league_id = resolve_league_id(league_id)?;
+pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
+    let league_id = resolve_league_id(params.league_id)?;
 
     // Load or fetch league settings to compute points; cached for future runs.
-    let settings = load_or_fetch_league_settings(league_id, false, season).await?;
+    let settings = load_or_fetch_league_settings(league_id, false, params.season).await?;
     let scoring_index = build_scoring_index(&settings.scoring_settings.scoring_items);
 
     let players_val = get_player_data(
-        debug,
+        params.debug,
         league_id,
-        limit,
-        player_name,
-        positions,
-        season,
-        week,
+        params.limit,
+        params.player_name,
+        params.positions,
+        params.season,
+        params.week,
     )
     .await?;
 
     let empty = Vec::new();
     let arr = players_val.as_array().unwrap_or(&empty);
-    let stat_source = if projected { 1 } else { 0 };
+    let stat_source = if params.projected { 1 } else { 0 };
 
     let mut player_points: Vec<PlayerPoints> = Vec::new();
 
@@ -94,15 +98,15 @@ pub async fn handle_player_data(
             .unwrap_or(0) as u8;
 
         if let Some(weekly_stats) =
-            select_weekly_stats(p, season.as_u16(), week.as_u16(), stat_source)
+            select_weekly_stats(p, params.season.as_u16(), params.week.as_u16(), stat_source)
         {
             let points = compute_points_for_week(weekly_stats, slot_id, &scoring_index);
             if points > 0f64 {
                 player_points.push(PlayerPoints {
                     id,
                     name,
-                    week,
-                    projected,
+                    week: params.week,
+                    projected: params.projected,
                     points,
                 });
             }
@@ -116,7 +120,7 @@ pub async fn handle_player_data(
             .unwrap_or(std::cmp::Ordering::Equal)
     });
 
-    if as_json {
+    if params.as_json {
         println!("{}", serde_json::to_string_pretty(&player_points)?);
     } else {
         for player in player_points {

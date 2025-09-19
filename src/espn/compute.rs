@@ -18,12 +18,12 @@ pub fn build_scoring_index(items: &[ScoringItem]) -> BTreeMap<u16, (f64, BTreeMa
 /// `stat_source_id`: 0 = actual, 1 = projected.
 /// `stat_split_type_id`: 1 = weekly, 0 = season total.
 /// Returns the `stats` map if found.
-pub fn select_weekly_stats<'a>(
-    player: &'a Value,
+pub fn select_weekly_stats(
+    player: &Value,
     season: u16,
     week: u16,
     stat_source_id: u8,
-) -> Option<&'a Value> {
+) -> Option<&Value> {
     let stats = player.get("stats")?.as_array()?;
     stats.iter().find_map(|s| {
         let season_id = s.get("seasonId").and_then(|v| v.as_u64())? as u16;

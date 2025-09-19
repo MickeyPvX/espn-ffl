@@ -76,7 +76,7 @@ pub async fn get_player_data(
     let players_filter = build_players_filter(limit, player_name, slots, None);
 
     let mut headers = get_common_headers()?;
-    headers.insert("x-fantasy-filter", players_filter.into_header_value()?);
+    headers.insert("x-fantasy-filter", players_filter.to_header_value()?);
 
     // URL and query params
     let url = format!("{FFL_BASE_URL}/seasons/{}/players", season.as_u16());
