@@ -12,5 +12,7 @@ count = true
 
 # Exclude integration/I/O code that can't be unit tested
 exclude-files = [
-    "src/main.rs"
+    "src/main.rs",
+    "**/tests.rs",
+    "**/tests/**"
 ]
