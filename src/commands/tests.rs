@@ -41,7 +41,7 @@ mod command_tests {
         match result.unwrap_err() {
             EspnError::MissingLeagueId { env_var } => {
                 assert_eq!(env_var, LEAGUE_ID_ENV_VAR);
-            },
+            }
             _ => panic!("Expected MissingLeagueId error"),
         }
     }
@@ -93,7 +93,7 @@ mod command_tests {
         // In a real test with mocks, we would assert success
         // For now, we just verify it compiles and has the right signature
         match result {
-            Ok(_) => {},
+            Ok(_) => {}
             Err(_) => {
                 // Expected to fail without mock server
             }
@@ -113,17 +113,18 @@ mod command_tests {
             false, // debug
             false, // as_json
             league_id,
-            Some(10), // limit
+            Some(10),                  // limit
             Some("Brady".to_string()), // player_name
             positions,
             false, // projected
             season,
             week,
-        ).await;
+        )
+        .await;
 
         // In a real test with mocks, we would assert success
         match result {
-            Ok(_) => {},
+            Ok(_) => {}
             Err(_) => {
                 // Expected to fail without mock server
             }
@@ -175,7 +176,11 @@ mod command_tests {
         ];
 
         // Sort by points descending (like in the actual command)
-        players.sort_by(|a, b| b.points.partial_cmp(&a.points).unwrap_or(std::cmp::Ordering::Equal));
+        players.sort_by(|a, b| {
+            b.points
+                .partial_cmp(&a.points)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         assert_eq!(players[0].points, 25.0);
         assert_eq!(players[1].points, 20.0);
@@ -202,7 +207,11 @@ mod command_tests {
         ];
 
         // Sort should handle equal values gracefully
-        players.sort_by(|a, b| b.points.partial_cmp(&a.points).unwrap_or(std::cmp::Ordering::Equal));
+        players.sort_by(|a, b| {
+            b.points
+                .partial_cmp(&a.points)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         // Both should remain (order may vary but both should be present)
         assert_eq!(players.len(), 2);
@@ -223,7 +232,7 @@ mod command_tests {
         let result = handle_league_data(None, false, Season::default(), false).await;
         assert!(result.is_err());
         match result.unwrap_err() {
-            EspnError::MissingLeagueId { .. } => {},
+            EspnError::MissingLeagueId { .. } => {}
             _ => panic!("Expected MissingLeagueId error"),
         }
     }
@@ -233,12 +242,20 @@ mod command_tests {
         std::env::remove_var(LEAGUE_ID_ENV_VAR);
 
         let result = handle_player_data(
-            false, false, None, None, None, None, false,
-            Season::default(), Week::default()
-        ).await;
+            false,
+            false,
+            None,
+            None,
+            None,
+            None,
+            false,
+            Season::default(),
+            Week::default(),
+        )
+        .await;
         assert!(result.is_err());
         match result.unwrap_err() {
-            EspnError::MissingLeagueId { .. } => {},
+            EspnError::MissingLeagueId { .. } => {}
             _ => panic!("Expected MissingLeagueId error"),
         }
     }

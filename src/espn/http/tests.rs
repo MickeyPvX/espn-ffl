@@ -1,11 +1,11 @@
 //! Unit tests for HTTP client functionality
 
 use super::*;
+use serde_json::json;
 use wiremock::{
-    matchers::{method, path, query_param, header},
+    matchers::{header, method, path, query_param},
     Mock, MockServer, ResponseTemplate,
 };
-use serde_json::json;
 
 #[cfg(test)]
 mod http_tests {
@@ -30,7 +30,9 @@ mod http_tests {
         });
 
         Mock::given(method("GET"))
-            .and(path("/apis/v3/games/ffl/seasons/2023/segments/0/leagues/12345"))
+            .and(path(
+                "/apis/v3/games/ffl/seasons/2023/segments/0/leagues/12345",
+            ))
             .and(query_param("view", "mSettings"))
             .and(header("accept", "application/json"))
             .respond_with(ResponseTemplate::new(200).set_body_json(&mock_response))
@@ -93,7 +95,10 @@ mod http_tests {
 
     #[test]
     fn test_ffl_base_url_constant() {
-        assert_eq!(FFL_BASE_URL, "https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl");
+        assert_eq!(
+            FFL_BASE_URL,
+            "https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl"
+        );
     }
 
     // Test utility functions that don't require HTTP calls

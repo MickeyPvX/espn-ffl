@@ -11,7 +11,7 @@ mod scoring_tests {
     fn create_test_scoring_items() -> Vec<ScoringItem> {
         vec![
             ScoringItem {
-                stat_id: 53, // Passing yards
+                stat_id: 53,  // Passing yards
                 points: 0.04, // 1 point per 25 yards
                 points_overrides: BTreeMap::new(),
             },
@@ -282,13 +282,11 @@ mod scoring_tests {
 
     #[test]
     fn test_compute_points_for_week_negative_values() {
-        let items = vec![
-            ScoringItem {
-                stat_id: 999,
-                points: -1.0, // Negative points per unit
-                points_overrides: BTreeMap::new(),
-            }
-        ];
+        let items = vec![ScoringItem {
+            stat_id: 999,
+            points: -1.0, // Negative points per unit
+            points_overrides: BTreeMap::new(),
+        }];
         let scoring_index = build_scoring_index(&items);
 
         let weekly_stats = json!({

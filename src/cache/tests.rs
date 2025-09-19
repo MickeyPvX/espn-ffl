@@ -1,8 +1,8 @@
 //! Unit tests for cache functionality
 
 use super::*;
-use tempfile::TempDir;
 use std::fs;
+use tempfile::TempDir;
 
 #[cfg(test)]
 mod cache_tests {
@@ -13,7 +13,9 @@ mod cache_tests {
         let path = league_settings_path(2023, 12345);
 
         // Should end with the expected filename
-        assert!(path.to_string_lossy().ends_with("espn-ffl/league-settings_2023_12345.json"));
+        assert!(path
+            .to_string_lossy()
+            .ends_with("espn-ffl/league-settings_2023_12345.json"));
 
         // Should contain the cache directory structure
         let path_str = path.to_string_lossy();
@@ -140,7 +142,11 @@ mod cache_tests {
     #[test]
     fn test_write_string_create_directories() {
         let temp_dir = TempDir::new().unwrap();
-        let nested_path = temp_dir.path().join("level1").join("level2").join("test_file.txt");
+        let nested_path = temp_dir
+            .path()
+            .join("level1")
+            .join("level2")
+            .join("test_file.txt");
         let test_content = "Content in nested directory";
 
         // Ensure parent directories don't exist yet
@@ -251,6 +257,8 @@ mod cache_tests {
         let path2 = league_settings_path(9999, u32::MAX);
 
         assert!(path1.to_string_lossy().contains("0_0"));
-        assert!(path2.to_string_lossy().contains(&format!("9999_{}", u32::MAX)));
+        assert!(path2
+            .to_string_lossy()
+            .contains(&format!("9999_{}", u32::MAX)));
     }
 }

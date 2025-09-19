@@ -1,17 +1,16 @@
 //! Command implementations for ESPN Fantasy Football CLI
 
 use crate::{
-    Result,
-    cli_types::{LeagueId, Season, Week, Position},
+    cache::league_settings_path,
+    cli_types::{LeagueId, Position, Season, Week},
+    error::EspnError,
     espn::{
         cache_settings::load_or_fetch_league_settings,
         compute::{build_scoring_index, compute_points_for_week, select_weekly_stats},
         http::get_player_data,
         types::PlayerPoints,
     },
-    cache::league_settings_path,
-    error::EspnError,
-    LEAGUE_ID_ENV_VAR,
+    Result, LEAGUE_ID_ENV_VAR,
 };
 
 #[cfg(test)]
@@ -77,7 +76,8 @@ pub async fn handle_player_data(
     let mut player_points: Vec<PlayerPoints> = Vec::new();
 
     for p in arr {
-        let id = p.get("id")
+        let id = p
+            .get("id")
             .and_then(|v| v.as_u64())
             .map(crate::cli_types::PlayerId::new)
             .unwrap_or(crate::cli_types::PlayerId::new(0));
@@ -93,7 +93,9 @@ pub async fn handle_player_data(
             .and_then(|v| v.as_u64())
             .unwrap_or(0) as u8;
 
-        if let Some(weekly_stats) = select_weekly_stats(p, season.as_u16(), week.as_u16(), stat_source) {
+        if let Some(weekly_stats) =
+            select_weekly_stats(p, season.as_u16(), week.as_u16(), stat_source)
+        {
             let points = compute_points_for_week(weekly_stats, slot_id, &scoring_index);
             if points > 0f64 {
                 player_points.push(PlayerPoints {
@@ -108,7 +110,11 @@ pub async fn handle_player_data(
     }
 
     // Sort descending by points
-    player_points.sort_by(|a, b| b.points.partial_cmp(&a.points).unwrap_or(std::cmp::Ordering::Equal));
+    player_points.sort_by(|a, b| {
+        b.points
+            .partial_cmp(&a.points)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     if as_json {
         println!("{}", serde_json::to_string_pretty(&player_points)?);

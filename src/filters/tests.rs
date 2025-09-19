@@ -13,7 +13,9 @@ mod filter_tests {
         let json = serde_json::to_string(&val).unwrap();
         assert_eq!(json, r#"{"value":42}"#);
 
-        let val_str = Val { value: "test".to_string() };
+        let val_str = Val {
+            value: "test".to_string(),
+        };
         let json = serde_json::to_string(&val_str).unwrap();
         assert_eq!(json, r#"{"value":"test"}"#);
     }
@@ -27,7 +29,9 @@ mod filter_tests {
 
     #[test]
     fn test_val_array() {
-        let val = Val { value: vec![1, 2, 3] };
+        let val = Val {
+            value: vec![1, 2, 3],
+        };
         let json = serde_json::to_string(&val).unwrap();
         assert_eq!(json, r#"{"value":[1,2,3]}"#);
     }
@@ -52,7 +56,9 @@ mod filter_tests {
     #[test]
     fn test_players_filter_with_name() {
         let filter = PlayersFilter {
-            filter_name: Some(Val { value: "Brady".to_string() }),
+            filter_name: Some(Val {
+                value: "Brady".to_string(),
+            }),
             ..PlayersFilter::default()
         };
         let json = serde_json::to_string(&filter).unwrap();
@@ -62,7 +68,9 @@ mod filter_tests {
     #[test]
     fn test_players_filter_with_slots() {
         let filter = PlayersFilter {
-            filter_slot_ids: Some(Val { value: vec![0, 2, 4] }),
+            filter_slot_ids: Some(Val {
+                value: vec![0, 2, 4],
+            }),
             ..PlayersFilter::default()
         };
         let json = serde_json::to_string(&filter).unwrap();
@@ -83,7 +91,9 @@ mod filter_tests {
     fn test_players_filter_all_fields() {
         let filter = PlayersFilter {
             filter_active: Some(Val { value: false }),
-            filter_name: Some(Val { value: "Mahomes".to_string() }),
+            filter_name: Some(Val {
+                value: "Mahomes".to_string(),
+            }),
             filter_slot_ids: Some(Val { value: vec![0] }),
             limit: Some(10),
         };
@@ -107,7 +117,9 @@ mod filter_tests {
     fn test_into_header_value_complex() {
         let filter = PlayersFilter {
             limit: Some(25),
-            filter_name: Some(Val { value: "Player".to_string() }),
+            filter_name: Some(Val {
+                value: "Player".to_string(),
+            }),
             ..PlayersFilter::default()
         };
         let header_value = filter.into_header_value().unwrap();
@@ -177,7 +189,7 @@ mod filter_tests {
             Some(50),
             Some("Kelce".to_string()),
             Some(slots.clone()),
-            Some(false)
+            Some(false),
         );
 
         assert_eq!(filter.limit, Some(50));
@@ -201,7 +213,10 @@ mod filter_tests {
     #[test]
     fn test_build_players_filter_empty_slots() {
         let filter = build_players_filter(None, None, Some(vec![]), None);
-        assert_eq!(filter.filter_slot_ids.as_ref().unwrap().value, Vec::<u8>::new());
+        assert_eq!(
+            filter.filter_slot_ids.as_ref().unwrap().value,
+            Vec::<u8>::new()
+        );
     }
 
     #[test]
@@ -210,12 +225,8 @@ mod filter_tests {
         let positions = vec![Position::QB, Position::RB];
         let slots: Vec<u8> = positions.into_iter().map(u8::from).collect();
 
-        let filter = build_players_filter(
-            Some(20),
-            Some("Josh".to_string()),
-            Some(slots),
-            Some(true)
-        );
+        let filter =
+            build_players_filter(Some(20), Some("Josh".to_string()), Some(slots), Some(true));
 
         // Convert to header value to ensure it works end-to-end
         let header_value = filter.into_header_value().unwrap();
@@ -237,7 +248,9 @@ mod filter_tests {
         // Test that serialization is consistent
         let filter = PlayersFilter {
             limit: Some(10),
-            filter_name: Some(Val { value: "Test".to_string() }),
+            filter_name: Some(Val {
+                value: "Test".to_string(),
+            }),
             ..PlayersFilter::default()
         };
 

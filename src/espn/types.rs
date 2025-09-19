@@ -1,6 +1,6 @@
-use serde::{Deserialize, Deserializer, Serialize, de::Error};
-use std::collections::BTreeMap;
 use crate::cli_types::{PlayerId, Season, Week};
+use serde::{de::Error, Deserialize, Deserializer, Serialize};
+use std::collections::BTreeMap;
 
 #[cfg(test)]
 mod tests;

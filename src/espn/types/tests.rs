@@ -81,7 +81,10 @@ mod types_tests {
         assert_eq!(settings.scoring_items.len(), 2);
         assert_eq!(settings.scoring_items[0].stat_id, 53);
         assert_eq!(settings.scoring_items[1].stat_id, 1);
-        assert_eq!(settings.scoring_items[1].points_overrides.get(&0), Some(&6.0));
+        assert_eq!(
+            settings.scoring_items[1].points_overrides.get(&0),
+            Some(&6.0)
+        );
     }
 
     #[test]
@@ -122,7 +125,10 @@ mod types_tests {
 
         let envelope: LeagueEnvelope = serde_json::from_value(json).unwrap();
         assert_eq!(envelope.settings.scoring_settings.scoring_items.len(), 1);
-        assert_eq!(envelope.settings.scoring_settings.scoring_items[0].stat_id, 25);
+        assert_eq!(
+            envelope.settings.scoring_settings.scoring_items[0].stat_id,
+            25
+        );
     }
 
     #[test]
@@ -340,11 +346,17 @@ mod types_tests {
         let json = serde_json::to_value(&original).unwrap();
         let deserialized: LeagueSettings = serde_json::from_value(json).unwrap();
 
-        assert_eq!(original.scoring_settings.scoring_items.len(),
-                   deserialized.scoring_settings.scoring_items.len());
-        assert_eq!(original.scoring_settings.scoring_items[0].stat_id,
-                   deserialized.scoring_settings.scoring_items[0].stat_id);
-        assert_eq!(original.scoring_settings.scoring_items[0].points_overrides,
-                   deserialized.scoring_settings.scoring_items[0].points_overrides);
+        assert_eq!(
+            original.scoring_settings.scoring_items.len(),
+            deserialized.scoring_settings.scoring_items.len()
+        );
+        assert_eq!(
+            original.scoring_settings.scoring_items[0].stat_id,
+            deserialized.scoring_settings.scoring_items[0].stat_id
+        );
+        assert_eq!(
+            original.scoring_settings.scoring_items[0].points_overrides,
+            deserialized.scoring_settings.scoring_items[0].points_overrides
+        );
     }
 }

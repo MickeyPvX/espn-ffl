@@ -2,7 +2,7 @@
 
 use clap::{Parser, Subcommand};
 
-use crate::cli_types::{Position, LeagueId, Season, Week};
+use crate::cli_types::{LeagueId, Position, Season, Week};
 
 #[derive(Debug, Subcommand)]
 pub enum GetCmd {

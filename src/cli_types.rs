@@ -1,10 +1,10 @@
 //! Type-safe wrappers and enums for ESPN Fantasy Football data.
 
+use crate::error::{EspnError, Result};
+use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 use std::fmt;
 use std::str::FromStr;
-use serde::{Deserialize, Serialize};
-use crate::error::{EspnError, Result};
 
 #[cfg(test)]
 mod tests;

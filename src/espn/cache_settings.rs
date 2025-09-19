@@ -1,10 +1,13 @@
 // src/espn/cache_settings.rs
 use serde_json::Value;
 
-use crate::{Result, cli_types::{LeagueId, Season}};
 use crate::cache::{league_settings_path, try_read_to_string, write_string};
 use crate::espn::types::LeagueEnvelope;
 use crate::espn::{http::get_league_settings, types::LeagueSettings};
+use crate::{
+    cli_types::{LeagueId, Season},
+    Result,
+};
 
 /// Try to load league settings from .cache first. If missing or `refresh == true`,
 /// fetch from ESPN (`view=mSettings`), extract the `"settings"` object, and re-write the cache.

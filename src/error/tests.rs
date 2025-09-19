@@ -11,7 +11,10 @@ mod espn_error_tests {
     async fn test_http_error_conversion() {
         // Create a real HTTP error by making a request to an invalid URL
         let client = reqwest::Client::new();
-        let result = client.get("http://invalid-url-that-does-not-exist.fake").send().await;
+        let result = client
+            .get("http://invalid-url-that-does-not-exist.fake")
+            .send()
+            .await;
         let reqwest_error = result.unwrap_err();
         let espn_error = EspnError::from(reqwest_error);
 
@@ -127,14 +130,16 @@ mod espn_error_tests {
 
     #[test]
     fn test_box_error_conversion() {
-        let box_error: Box<dyn std::error::Error + Send + Sync> =
-            Box::new(io::Error::new(io::ErrorKind::PermissionDenied, "Access denied"));
+        let box_error: Box<dyn std::error::Error + Send + Sync> = Box::new(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "Access denied",
+        ));
         let espn_error = EspnError::from(box_error);
 
         match espn_error {
             EspnError::Cache { message } => {
                 assert!(message.contains("Access denied"));
-            },
+            }
             _ => panic!("Expected Cache error variant"),
         }
     }

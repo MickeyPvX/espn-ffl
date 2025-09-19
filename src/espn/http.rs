@@ -1,15 +1,15 @@
-use std::sync::LazyLock;
 use reqwest::{
+    header::{HeaderMap, HeaderValue, ACCEPT},
     Client,
-    header::{ACCEPT, HeaderMap, HeaderValue},
 };
 use serde_json::Value;
+use std::sync::LazyLock;
 
 use crate::{
-    Result,
-    cli_types::{Position, LeagueId, Season, Week},
-    filters::{IntoHeaderValue, build_players_filter},
+    cli_types::{LeagueId, Position, Season, Week},
+    filters::{build_players_filter, IntoHeaderValue},
     util::maybe_cookie_header_map,
+    Result,
 };
 
 #[cfg(test)]
@@ -43,7 +43,8 @@ fn get_common_headers() -> Result<HeaderMap> {
 pub async fn get_league_settings(league_id: LeagueId, season: Season) -> Result<Value> {
     let url = format!(
         "{FFL_BASE_URL}/seasons/{}/segments/0/leagues/{}",
-        season.as_u16(), league_id.as_u32()
+        season.as_u16(),
+        league_id.as_u32()
     );
     let params = [("view", "mSettings")];
     let headers = get_common_headers()?;
@@ -88,7 +89,9 @@ pub async fn get_player_data(
     if debug {
         eprintln!(
             "URL => seasons/{}/players?forLeagueId={}&view=kona_player_info&scoringPeriodId={}",
-            season.as_u16(), league_id, week.as_u16()
+            season.as_u16(),
+            league_id,
+            week.as_u16()
         );
         for (k, v) in &headers {
             if let Ok(s) = v.to_str() {

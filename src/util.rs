@@ -1,7 +1,7 @@
 //! Common helpers: cookie header builder and week-spec parsing.
 
-use reqwest::header::{ACCEPT, COOKIE, HeaderMap, HeaderValue};
 use crate::Result;
+use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, COOKIE};
 
 #[cfg(test)]
 mod tests;

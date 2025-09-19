@@ -188,13 +188,13 @@ mod util_tests {
                     Ok(cookie_value) => {
                         assert!(cookie_value.contains("SWID=swid-café-🏈"));
                         assert!(cookie_value.contains("espn_s2=s2-naïve-⚡"));
-                    },
+                    }
                     Err(_) => {
                         // Unicode might not be supported in header values
                         // This is acceptable behavior
                     }
                 }
-            },
+            }
             Ok(None) => panic!("Expected headers when both env vars are set"),
             Err(_) => {
                 // This is acceptable - Unicode in headers might not be supported
