@@ -294,7 +294,11 @@ mod cache_tests {
     #[test]
     fn test_write_string_parent_dir_creation() {
         let temp_dir = TempDir::new().unwrap();
-        let nested_path = temp_dir.path().join("deeply").join("nested").join("file.txt");
+        let nested_path = temp_dir
+            .path()
+            .join("deeply")
+            .join("nested")
+            .join("file.txt");
 
         // Parent directories don't exist yet
         assert!(!nested_path.parent().unwrap().exists());

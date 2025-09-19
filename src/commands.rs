@@ -44,7 +44,7 @@ pub async fn handle_league_data(
     if verbose {
         let path = league_settings_path(season.as_u16(), league_id.as_u32());
         eprintln!("Cached at: {}", path.display()); // tarpaulin::skip
-        // tarpaulin::skip - console output
+                                                    // tarpaulin::skip - console output
         eprintln!(
             "Scoring items: {:?}",
             settings.scoring_settings.scoring_items
