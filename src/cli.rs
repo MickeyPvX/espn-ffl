@@ -1,27 +1,27 @@
-//! CLI argument definitions (using structopt).
+//! CLI argument definitions (using clap).
 
-use structopt::StructOpt;
+use clap::{Parser, Subcommand};
 
-use crate::cli_types::Position;
+use crate::cli_types::{Position, LeagueId, Season, Week};
 
-#[derive(Debug, StructOpt)]
+#[derive(Debug, Subcommand)]
 pub enum GetCmd {
     /// Fetch and optionally refresh cached league settings for a season + league
     LeagueData {
         /// League ID (or set `ESPN_FFL_LEAGUE_ID` env var).
-        #[structopt(long, short)]
-        league_id: Option<u32>,
+        #[clap(long, short)]
+        league_id: Option<LeagueId>,
 
         /// Force refresh from ESPN, overwriting the cache.
-        #[structopt(long)]
+        #[clap(long)]
         refresh: bool,
 
         /// Season year (e.g. 2025).
-        #[structopt(default_value = "2025", long, short)]
-        season: u16,
+        #[clap(long, short, default_value_t = Season::default())]
+        season: Season,
 
         /// Print the cached path and a short summary when done.
-        #[structopt(long)]
+        #[clap(long)]
         verbose: bool,
     },
 
@@ -31,45 +31,55 @@ pub enum GetCmd {
     /// using league settings (read from cache or fetched if missing).
     PlayerData {
         /// Print request URL and headers for debugging.
-        #[structopt(long)]
+        #[clap(long)]
         debug: bool,
 
         /// Output results as JSON instead of text lines.
-        #[structopt(long)]
+        #[clap(long)]
         json: bool,
 
         /// League ID (or set `ESPN_FFL_LEAGUE_ID` env var).
-        #[structopt(long, short)]
-        league_id: Option<u32>,
+        #[clap(long, short)]
+        league_id: Option<LeagueId>,
 
         /// Limit the number of results
-        #[structopt(long)]
+        #[clap(long)]
         limit: Option<u32>,
 
         /// Filter by player last name (substring match).
-        #[structopt(long, short = "n")]
+        #[clap(long, short = 'n')]
         player_name: Option<String>,
 
         /// Filter by position (repeatable): `-p QB -p RB`.
-        #[structopt(short = "p", long = "position")]
+        #[clap(short = 'p', long = "position")]
         positions: Option<Vec<Position>>,
 
         /// Use projected points instead of actual (statSourceId == 1)
-        #[structopt(long = "proj")]
+        #[clap(long = "proj")]
         projected: bool,
 
         /// Season year (e.g. 2025).
-        #[structopt(default_value = "2025", long, short)]
-        season: u16,
+        #[clap(long, short, default_value_t = Season::default())]
+        season: Season,
 
         /// Single week.
-        #[structopt(default_value = "1", long, short)]
-        week: u16,
+        #[clap(long, short, default_value_t = Week::default())]
+        week: Week,
     },
 }
 
-#[derive(Debug, StructOpt)]
-pub enum ESPN {
-    /// Group for read operations
-    Get(GetCmd),
+#[derive(Debug, Parser)]
+#[clap(name = "espn-ffl", about = "ESPN Fantasy Football CLI")]
+pub struct ESPN {
+    #[clap(subcommand)]
+    pub command: Commands,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum Commands {
+    /// Get data from ESPN Fantasy Football
+    Get {
+        #[clap(subcommand)]
+        cmd: GetCmd,
+    },
 }
