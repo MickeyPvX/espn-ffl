@@ -41,11 +41,11 @@ mod http_tests {
 
         // We would need to modify the actual implementation to accept a custom base URL for testing
         // For now, this shows the test structure
-        let league_id = LeagueId::new(12345);
-        let season = Season::new(2023);
+        let _league_id = LeagueId::new(12345);
+        let _season = Season::new(2023);
 
         // This test would pass if we could inject the mock server URL
-        // let result = get_league_settings(league_id, season).await;
+        // let result = get_league_settings(_league_id, _season).await;
         // assert!(result.is_ok());
     }
 
@@ -60,7 +60,7 @@ mod http_tests {
                 "defaultPositionId": 0,
                 "stats": [
                     {
-                        "seasonId": 2023,
+                        "_seasonId": 2023,
                         "scoringPeriodId": 1,
                         "statSourceId": 0,
                         "statSplitTypeId": 1,
@@ -84,12 +84,12 @@ mod http_tests {
             .await;
 
         // Test structure for player data endpoint
-        let league_id = LeagueId::new(12345);
-        let season = Season::new(2023);
-        let week = Week::new(1);
+        let _league_id = LeagueId::new(12345);
+        let _season = Season::new(2023);
+        let _week = Week::new(1);
 
         // This test would pass if we could inject the mock server URL
-        // let result = get_player_data(false, league_id, None, None, None, season, week).await;
+        // let result = get_player_data(false, _league_id, None, None, None, _season, _week).await;
         // assert!(result.is_ok());
     }
 
@@ -166,9 +166,9 @@ mod http_tests {
     #[tokio::test]
     async fn test_debug_output() {
         // Test the debug flag functionality
-        let league_id = LeagueId::new(12345);
-        let season = Season::new(2023);
-        let week = Week::new(1);
+        let _league_id = LeagueId::new(12345);
+        let _season = Season::new(2023);
+        let _week = Week::new(1);
 
         // This test would verify that debug output is printed when debug=true
         // We could capture stderr/stdout to verify the debug messages
@@ -177,9 +177,9 @@ mod http_tests {
     #[tokio::test]
     async fn test_player_data_with_filters() {
         // Test various filter combinations
-        let positions = vec![Position::QB, Position::RB];
-        let player_name = Some("Brady".to_string());
-        let limit = Some(10);
+        let _positions = vec![Position::QB, Position::RB];
+        let _player_name = Some("Brady".to_string());
+        let _limit = Some(10);
 
         // Test that filters are properly applied to the request
         // This would require mocking and verifying the x-fantasy-filter header

@@ -8,6 +8,10 @@ mod util_tests {
 
     #[test]
     fn test_maybe_cookie_header_map_with_both_env_vars() {
+        // Clean up first to ensure test isolation
+        std::env::remove_var("ESPN_SWID");
+        std::env::remove_var("ESPN_S2");
+
         // Set both environment variables
         std::env::set_var("ESPN_SWID", "test-swid-123");
         std::env::set_var("ESPN_S2", "test-s2-456");
@@ -33,6 +37,10 @@ mod util_tests {
 
     #[test]
     fn test_maybe_cookie_header_map_missing_swid() {
+        // Clean up first to ensure test isolation
+        std::env::remove_var("ESPN_SWID");
+        std::env::remove_var("ESPN_S2");
+
         // Remove SWID, set S2
         std::env::remove_var("ESPN_SWID");
         std::env::set_var("ESPN_S2", "test-s2-456");
@@ -46,6 +54,10 @@ mod util_tests {
 
     #[test]
     fn test_maybe_cookie_header_map_missing_s2() {
+        // Clean up first to ensure test isolation
+        std::env::remove_var("ESPN_SWID");
+        std::env::remove_var("ESPN_S2");
+
         // Set SWID, remove S2
         std::env::set_var("ESPN_SWID", "test-swid-123");
         std::env::remove_var("ESPN_S2");
@@ -59,6 +71,10 @@ mod util_tests {
 
     #[test]
     fn test_maybe_cookie_header_map_both_missing() {
+        // Clean up first to ensure test isolation
+        std::env::remove_var("ESPN_SWID");
+        std::env::remove_var("ESPN_S2");
+
         // Remove both environment variables
         std::env::remove_var("ESPN_SWID");
         std::env::remove_var("ESPN_S2");
@@ -87,6 +103,10 @@ mod util_tests {
 
     #[test]
     fn test_maybe_cookie_header_map_special_characters() {
+        // Clean up first to ensure test isolation
+        std::env::remove_var("ESPN_SWID");
+        std::env::remove_var("ESPN_S2");
+
         // Test with special characters that might need escaping
         std::env::set_var("ESPN_SWID", "swid-with-dashes_and_underscores.123");
         std::env::set_var("ESPN_S2", "s2+with/special=chars&symbols");

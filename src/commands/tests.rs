@@ -109,17 +109,17 @@ mod command_tests {
         let positions = Some(vec![Position::QB, Position::RB]);
 
         // This would fail with actual HTTP call, but tests the structure
-        let result = handle_player_data(
-            false, // debug
-            false, // as_json
+        let result = handle_player_data(PlayerDataParams {
+            debug: false,
+            as_json: false,
             league_id,
-            Some(10),                  // limit
-            Some("Brady".to_string()), // player_name
+            limit: Some(10),
+            player_name: Some("Brady".to_string()),
             positions,
-            false, // projected
+            projected: false,
             season,
             week,
-        )
+        })
         .await;
 
         // In a real test with mocks, we would assert success
@@ -241,17 +241,17 @@ mod command_tests {
     async fn test_handle_player_data_missing_id() {
         std::env::remove_var(LEAGUE_ID_ENV_VAR);
 
-        let result = handle_player_data(
-            false,
-            false,
-            None,
-            None,
-            None,
-            None,
-            false,
-            Season::default(),
-            Week::default(),
-        )
+        let result = handle_player_data(PlayerDataParams {
+            debug: false,
+            as_json: false,
+            league_id: None,
+            limit: None,
+            player_name: None,
+            positions: None,
+            projected: false,
+            season: Season::default(),
+            week: Week::default(),
+        })
         .await;
         assert!(result.is_err());
         match result.unwrap_err() {
