@@ -25,10 +25,6 @@ jobs:
             --verbose \
             --all-features \
             --workspace \
-            --timeout 120 \
-            --exclude-files src/main.rs \
-            --exclude-files "**/tests.rs" \
-            --exclude-files "**/tests/**" \
             --out xml
 
       - name: Upload to codecov.io

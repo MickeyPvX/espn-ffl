@@ -1,6 +1,4 @@
 [test_config]
-# Keep this minimal since CI workflow sets most options via command line
-
 # Timeout for each test in seconds
 timeout = "120s"
 
@@ -9,6 +7,12 @@ follow-exec = false
 
 # Count hits in tests
 count = true
+
+# Run tests sequentially to avoid segfaults
+test-threads = 1
+
+# Skip unstable features that can cause issues
+skip-clean = false
 
 # Exclude integration/I/O code that can't be unit tested
 exclude-files = [
