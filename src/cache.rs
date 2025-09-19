@@ -5,6 +5,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
+#[cfg(test)]
+mod tests;
+
 /// Path: ~/.cache/league_settings-{season}-{league_id}.json
 pub fn league_settings_path(season: u16, league_id: u32) -> PathBuf {
     let base = dirs::cache_dir().unwrap_or_else(|| {

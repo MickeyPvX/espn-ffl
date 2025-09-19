@@ -1,7 +1,10 @@
 use reqwest::header::HeaderValue;
 use serde::Serialize;
 
-use crate::FlexResult;
+use crate::Result;
+
+#[cfg(test)]
+mod tests;
 
 /// Wraps ESPN-style `{ "value": ... }`
 #[derive(Debug, Serialize)]
@@ -29,14 +32,14 @@ pub struct PlayersFilter {
 
 /// General-purpose helper: any Serialize → JSON → HeaderValue
 pub trait IntoHeaderValue {
-    fn into_header_value(&self) -> FlexResult<HeaderValue>;
+    fn to_header_value(&self) -> Result<HeaderValue>;
 }
 
 impl<T> IntoHeaderValue for T
 where
     T: Serialize,
 {
-    fn into_header_value(&self) -> FlexResult<HeaderValue> {
+    fn to_header_value(&self) -> Result<HeaderValue> {
         let s = serde_json::to_string(self)?;
         Ok(HeaderValue::from_str(&s)?)
     }

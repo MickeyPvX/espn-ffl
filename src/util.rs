@@ -1,10 +1,10 @@
 //! Common helpers: cookie header builder and week-spec parsing.
 
-use reqwest::header::{ACCEPT, COOKIE, HeaderMap, HeaderValue};
-use std::error::Error;
+use crate::Result;
+use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, COOKIE};
 
-/// Project-standard Result with Send+Sync error.
-pub type Result<T> = std::result::Result<T, Box<dyn Error + Send + Sync>>;
+#[cfg(test)]
+mod tests;
 
 /// Build cookie headers from `ESPN_SWID` and `ESPN_S2`, if present.
 ///

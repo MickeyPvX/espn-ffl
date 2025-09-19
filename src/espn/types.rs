@@ -1,5 +1,9 @@
-use serde::{Deserialize, Deserializer, Serialize, de::Error};
+use crate::cli_types::{PlayerId, Season, Week};
+use serde::{de::Error, Deserialize, Deserializer, Serialize};
 use std::collections::BTreeMap;
+
+#[cfg(test)]
+mod tests;
 
 fn de_str_key_map_u8_f64<'de, D>(deserializer: D) -> Result<BTreeMap<u8, f64>, D::Error>
 where
@@ -43,4 +47,41 @@ pub struct LeagueSettings {
 #[derive(Deserialize)]
 pub struct LeagueEnvelope {
     pub settings: LeagueSettings,
+}
+
+/// Player data from ESPN API
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct Player {
+    pub id: PlayerId,
+    #[serde(rename = "fullName")]
+    pub full_name: String,
+    #[serde(rename = "defaultPositionId")]
+    pub default_position_id: u8,
+    #[serde(default)]
+    pub stats: Vec<PlayerStats>,
+}
+
+/// Player statistics for a specific period
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct PlayerStats {
+    #[serde(rename = "seasonId")]
+    pub season_id: Season,
+    #[serde(rename = "scoringPeriodId")]
+    pub scoring_period_id: Week,
+    #[serde(rename = "statSourceId")]
+    pub stat_source_id: u8,
+    #[serde(rename = "statSplitTypeId")]
+    pub stat_split_type_id: u8,
+    #[serde(default)]
+    pub stats: BTreeMap<String, f64>,
+}
+
+/// Computed player points for display
+#[derive(Debug, Clone, Serialize)]
+pub struct PlayerPoints {
+    pub id: PlayerId,
+    pub name: String,
+    pub week: Week,
+    pub projected: bool,
+    pub points: f64,
 }

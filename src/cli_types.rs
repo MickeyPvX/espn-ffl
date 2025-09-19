@@ -1,8 +1,123 @@
-//! Position enum and conversions to ESPN slot IDs.
+//! Type-safe wrappers and enums for ESPN Fantasy Football data.
 
+use crate::error::{EspnError, Result};
+use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 use std::fmt;
 use std::str::FromStr;
+
+#[cfg(test)]
+mod tests;
+
+/// Type-safe wrapper for League IDs
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct LeagueId(pub u32);
+
+impl LeagueId {
+    pub fn new(id: u32) -> Self {
+        Self(id)
+    }
+
+    pub fn as_u32(&self) -> u32 {
+        self.0
+    }
+}
+
+impl fmt::Display for LeagueId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl FromStr for LeagueId {
+    type Err = EspnError;
+
+    fn from_str(s: &str) -> Result<Self> {
+        Ok(Self(s.parse()?))
+    }
+}
+
+impl FromStr for Season {
+    type Err = EspnError;
+
+    fn from_str(s: &str) -> Result<Self> {
+        Ok(Self(s.parse()?))
+    }
+}
+
+impl FromStr for Week {
+    type Err = EspnError;
+
+    fn from_str(s: &str) -> Result<Self> {
+        Ok(Self(s.parse()?))
+    }
+}
+
+/// Type-safe wrapper for Player IDs
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct PlayerId(pub u64);
+
+impl PlayerId {
+    pub fn new(id: u64) -> Self {
+        Self(id)
+    }
+
+    pub fn as_u64(&self) -> u64 {
+        self.0
+    }
+}
+
+/// Type-safe wrapper for Season years
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Season(pub u16);
+
+impl Season {
+    pub fn new(year: u16) -> Self {
+        Self(year)
+    }
+
+    pub fn as_u16(&self) -> u16 {
+        self.0
+    }
+}
+
+impl Default for Season {
+    fn default() -> Self {
+        Self(2025)
+    }
+}
+
+impl fmt::Display for Season {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+/// Type-safe wrapper for Week numbers
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Week(pub u16);
+
+impl Week {
+    pub fn new(week: u16) -> Self {
+        Self(week)
+    }
+
+    pub fn as_u16(&self) -> u16 {
+        self.0
+    }
+}
+
+impl Default for Week {
+    fn default() -> Self {
+        Self(1)
+    }
+}
+
+impl fmt::Display for Week {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 // TODO - Re-implement with proper query for player data
 // /// Availability filter for ESPN players, mapped to filterStatuses
@@ -46,7 +161,7 @@ impl FromStr for Position {
     /// Parse user input into a `Position`, case-insensitive.
     ///
     /// Accepts common aliases like `"DEF"`, `"D/ST"`, `"DST"` for defense.
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s.to_uppercase().as_str() {
             "D" | "D/ST" | "DEF" | "DST" => Ok(Self::D),
             "FLEX" => Ok(Self::FLEX),
@@ -84,7 +199,7 @@ impl From<Position> for u8 {
 impl TryFrom<u8> for Position {
     type Error = String;
 
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
+    fn try_from(value: u8) -> std::result::Result<Self, Self::Error> {
         match value {
             0 => Ok(Position::QB),
             2 => Ok(Position::RB),
