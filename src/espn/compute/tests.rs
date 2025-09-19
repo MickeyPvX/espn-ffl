@@ -314,4 +314,20 @@ mod scoring_tests {
         let points = compute_points_for_week(&weekly_stats, 0, &scoring_index);
         assert_eq!(points, 29.5); // 13 + 12 - 4 + 2.5 + 6 = 29.5
     }
+
+    #[test]
+    fn test_compute_points_for_week_invalid_stat_ids() {
+        let items = create_test_scoring_items();
+        let scoring_index = build_scoring_index(&items);
+
+        let weekly_stats = json!({
+            "not_a_number": 5.0,     // Invalid stat ID - should be skipped
+            "also_invalid": 10.0,    // Invalid stat ID - should be skipped
+            "1": 2.0                 // Valid passing TD = 2 * 4 = 8 points
+        });
+
+        // Should skip invalid stat IDs and only count valid ones
+        let points = compute_points_for_week(&weekly_stats, 0, &scoring_index);
+        assert_eq!(points, 8.0); // Only the valid passing TD should count
+    }
 }

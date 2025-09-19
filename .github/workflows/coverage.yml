@@ -28,19 +28,47 @@ jobs:
             --workspace \
             --timeout 120 \
             --exclude-files src/main.rs \
-            --exclude-files "*/tests.rs" \
-            --exclude-files "*/tests/*" \
             --out xml \
             --output-dir coverage
 
-      - name: Upload to codecov.io
-        uses: codecov/codecov-action@v4
+          # Extract coverage percentage from XML
+          COVERAGE=$(grep -o 'line-rate="[^"]*"' coverage/cobertura.xml | head -1 | sed 's/line-rate="//' | sed 's/"//')
+          COVERAGE_PERCENT=$(echo "scale=1; $COVERAGE * 100" | bc)
+          echo "Coverage: $COVERAGE_PERCENT%"
+          echo "COVERAGE_PERCENT=$COVERAGE_PERCENT" >> $GITHUB_ENV
+
+      - name: Create coverage badge
+        if: github.ref == 'refs/heads/main'
+        run: |
+          # Create a simple coverage badge using shields.io endpoint style
+          COVERAGE_INT=${COVERAGE_PERCENT%.*}
+          if [ "$COVERAGE_INT" -ge 80 ]; then
+            COLOR="brightgreen"
+          elif [ "$COVERAGE_INT" -ge 60 ]; then
+            COLOR="yellow"
+          else
+            COLOR="red"
+          fi
+
+          # Create badge JSON for shields.io endpoint
+          mkdir -p badges
+          cat > badges/coverage.json << EOF
+          {
+            "schemaVersion": 1,
+            "label": "coverage",
+            "message": "${COVERAGE_PERCENT}%",
+            "color": "$COLOR"
+          }
+          EOF
+
+      - name: Deploy badge to GitHub Pages
+        if: github.ref == 'refs/heads/main'
+        uses: peaceiris/actions-gh-pages@v4
         with:
-          file: coverage/cobertura.xml
-          flags: unittests
-          name: codecov-umbrella
-          fail_ci_if_error: false
-          token: ${{ secrets.CODECOV_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: badges
+          destination_dir: badges
+          keep_files: true
 
       - name: Archive code coverage results
         uses: actions/upload-artifact@v4

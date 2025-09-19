@@ -359,4 +359,18 @@ mod types_tests {
             deserialized.scoring_settings.scoring_items[0].points_overrides
         );
     }
+
+    #[test]
+    fn test_de_str_key_map_u8_f64_with_invalid_keys() {
+        // Test the deserializer with invalid key that can't be parsed as u8
+        let json = json!({
+            "invalid_key": 5.0,
+            "also_invalid": 10.0,
+            "42": 15.0  // This one should work
+        });
+
+        // This should fail because the keys can't be parsed as u8
+        let result: Result<BTreeMap<u8, f64>, _> = serde_json::from_value(json);
+        assert!(result.is_err());
+    }
 }

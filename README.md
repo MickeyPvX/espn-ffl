@@ -1,7 +1,7 @@
 # ESPN Fantasy Football CLI
 
 [![CI](https://github.com/MickeyPvX/espn-ffl/workflows/CI/badge.svg)](https://github.com/MickeyPvX/espn-ffl/actions/workflows/ci.yml)
-[![Coverage](https://codecov.io/gh/MickeyPvX/espn-ffl/branch/main/graph/badge.svg)](https://codecov.io/gh/MickeyPvX/espn-ffl)
+[![Coverage](https://img.shields.io/endpoint?url=https://MickeyPvX.github.io/espn-ffl/badges/coverage.json)](https://github.com/MickeyPvX/espn-ffl/actions/workflows/coverage.yml)
 
 A fast, reliable command-line tool for querying ESPN Fantasy Football player statistics and points. Built in Rust for performance and type safety.
 
