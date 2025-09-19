@@ -18,7 +18,7 @@ jobs:
       options: --security-opt seccomp=unconfined
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4i
       - name: Generate code coverage
         run: |
           cargo +nightly tarpaulin \
@@ -32,7 +32,7 @@ jobs:
             --out xml
 
       - name: Upload to codecov.io
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ./cobertura.xml
