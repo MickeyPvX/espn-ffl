@@ -2,6 +2,9 @@ use serde::{Deserialize, Deserializer, Serialize, de::Error};
 use std::collections::BTreeMap;
 use crate::cli_types::{PlayerId, Season, Week};
 
+#[cfg(test)]
+mod tests;
+
 fn de_str_key_map_u8_f64<'de, D>(deserializer: D) -> Result<BTreeMap<u8, f64>, D::Error>
 where
     D: Deserializer<'de>,

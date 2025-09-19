@@ -6,6 +6,9 @@ use std::str::FromStr;
 use serde::{Deserialize, Serialize};
 use crate::error::{EspnError, Result};
 
+#[cfg(test)]
+mod tests;
+
 /// Type-safe wrapper for League IDs
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct LeagueId(pub u32);

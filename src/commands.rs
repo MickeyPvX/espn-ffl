@@ -14,6 +14,9 @@ use crate::{
     LEAGUE_ID_ENV_VAR,
 };
 
+#[cfg(test)]
+mod tests;
+
 /// Handle the league data command
 pub async fn handle_league_data(
     league_id: Option<LeagueId>,

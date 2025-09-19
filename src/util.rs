@@ -3,6 +3,9 @@
 use reqwest::header::{ACCEPT, COOKIE, HeaderMap, HeaderValue};
 use crate::Result;
 
+#[cfg(test)]
+mod tests;
+
 /// Build cookie headers from `ESPN_SWID` and `ESPN_S2`, if present.
 ///
 /// Returns `Ok(None)` when either env var is missing (public leagues).

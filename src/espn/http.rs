@@ -12,6 +12,9 @@ use crate::{
     util::maybe_cookie_header_map,
 };
 
+#[cfg(test)]
+mod tests;
+
 /// Base path for ESPN Fantasy Football v3 API.
 pub const FFL_BASE_URL: &str = "https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl";
 

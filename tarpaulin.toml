@@ -1,0 +1,28 @@
+[report]
+# Tarpaulin configuration file
+
+# Output formats
+out = ["Html", "Xml"]
+
+# Coverage targets
+all-features = true
+workspace = true
+
+# Exclusions
+exclude-files = [
+    "src/main.rs",
+    "*/tests.rs",
+    "*/tests/*"
+]
+
+# Timeout for each test
+timeout = "120s"
+
+# Follow child processes
+follow-exec = false
+
+# Count hits in tests
+count = true
+
+# Verbose output
+verbose = true

@@ -12,3 +12,19 @@ serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 thiserror = "1.0"
 anyhow = "1.0"
+
+[dev-dependencies]
+mockall = "0.12"
+tokio-test = "0.4"
+tempfile = "3.0"
+assert_matches = "1.5"
+wiremock = "0.5"
+
+# Coverage reporting
+[package.metadata.coverage.report]
+# Configure tarpaulin coverage
+exclude_files = [
+    "src/main.rs",      # CLI entry point - tested via integration
+    "*/tests.rs",       # Test files themselves
+    "*/tests/*",        # Test modules
+]

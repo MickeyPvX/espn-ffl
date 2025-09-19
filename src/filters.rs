@@ -3,6 +3,9 @@ use serde::Serialize;
 
 use crate::Result;
 
+#[cfg(test)]
+mod tests;
+
 /// Wraps ESPN-style `{ "value": ... }`
 #[derive(Debug, Serialize)]
 pub struct Val<T> {
