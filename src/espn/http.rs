@@ -49,6 +49,7 @@ pub async fn get_league_settings(league_id: LeagueId, season: Season) -> Result<
     let params = [("view", "mSettings")];
     let headers = get_common_headers()?;
 
+    // tarpaulin::skip - HTTP client call
     let res = CLIENT
         .get(&url)
         .headers(headers)
@@ -87,6 +88,7 @@ pub async fn get_player_data(
     ];
 
     if debug {
+        // tarpaulin::skip - debug output
         eprintln!(
             "URL => seasons/{}/players?forLeagueId={}&view=kona_player_info&scoringPeriodId={}",
             season.as_u16(),
@@ -95,11 +97,12 @@ pub async fn get_player_data(
         );
         for (k, v) in &headers {
             if let Ok(s) = v.to_str() {
-                eprintln!("{}: {}", k, s);
+                eprintln!("{}: {}", k, s); // tarpaulin::skip
             }
         }
     }
 
+    // tarpaulin::skip - HTTP client call
     let players_val = CLIENT
         .get(&url)
         .headers(headers)

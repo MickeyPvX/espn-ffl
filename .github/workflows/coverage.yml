@@ -13,37 +13,29 @@ jobs:
   coverage:
     name: Coverage
     runs-on: ubuntu-latest
-    container:
-      image: xd009642/tarpaulin:develop-nightly
-      options: --security-opt seccomp=unconfined
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Generate code coverage
-        run: |
-          cargo +nightly tarpaulin \
-            --verbose \
-            --all-features \
-            --workspace \
-            --timeout 120 \
-            --exclude-files src/main.rs \
-            --exclude-files "*/tests.rs" \
-            --exclude-files "*/tests/*" \
-            --out xml \
-            --output-dir coverage
+        uses: actions/checkout@v5
+      
+      - name: Install stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+      
+      - name: Run cargo-tarpaulin
+        uses: actions-rs/tarpaulin@v0.1
+        with:
+          version: '0.32.8'
+          args: '-- --test-threads 1'
 
       - name: Upload to codecov.io
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v1.0.2
         with:
-          file: coverage/cobertura.xml
-          flags: unittests
-          name: codecov-umbrella
-          fail_ci_if_error: false
-          token: ${{ secrets.CODECOV_TOKEN }}
+          token: ${{secrets.CODECOV_TOKEN}}
 
       - name: Archive code coverage results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v1
         with:
           name: code-coverage-report
-          path: coverage/cobertura.xml
+          path: cobertura.xml

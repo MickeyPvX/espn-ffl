@@ -21,15 +21,12 @@ jobs:
           - nightly
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@master
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
         with:
           toolchain: ${{ matrix.rust }}
-
-      - name: Cache dependencies
-        uses: Swatinem/rust-cache@v2
 
       - name: Run tests
         run: cargo test --verbose --all-features
@@ -39,11 +36,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
         with:
+          toolchain: stable
           components: rustfmt
 
       - name: Check formatting
@@ -54,15 +52,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
         with:
+          toolchain: stable
           components: clippy
-
-      - name: Cache dependencies
-        uses: Swatinem/rust-cache@v2
 
       - name: Linting
         run: cargo clippy --all-features -- -D warnings
@@ -72,10 +68,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
 
       - name: Install cargo-audit
         run: cargo install cargo-audit

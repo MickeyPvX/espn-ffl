@@ -1,28 +1,19 @@
-[report]
-# Tarpaulin configuration file
-
-# Output formats
-out = ["Html", "Xml"]
-
-# Coverage targets
-all-features = true
-workspace = true
-
-# Exclusions
-exclude-files = [
-    "src/main.rs",
-    "*/tests.rs",
-    "*/tests/*"
-]
-
-# Timeout for each test
+[test_config]
+# Timeout for each test in seconds
 timeout = "120s"
 
-# Follow child processes
+# Don't follow child processes
 follow-exec = false
 
 # Count hits in tests
 count = true
 
-# Verbose output
-verbose = true
+# Skip unstable features that can cause issues
+skip-clean = false
+
+# Exclude integration/I/O code that can't be unit tested
+exclude-files = [
+    "src/main.rs",
+    "**/tests.rs",
+    "**/tests/**"
+]

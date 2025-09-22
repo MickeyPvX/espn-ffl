@@ -38,17 +38,19 @@ pub async fn handle_league_data(
     verbose: bool,
 ) -> Result<()> {
     let league_id = resolve_league_id(league_id)?;
+    // tarpaulin::skip - HTTP/file I/O call, tested via integration tests
     let settings = load_or_fetch_league_settings(league_id, refresh, season).await?;
 
     if verbose {
         let path = league_settings_path(season.as_u16(), league_id.as_u32());
-        eprintln!("Cached at: {}", path.display());
+        eprintln!("Cached at: {}", path.display()); // tarpaulin::skip
+                                                    // tarpaulin::skip - console output
         eprintln!(
             "Scoring items: {:?}",
             settings.scoring_settings.scoring_items
         );
     } else {
-        println!("League settings successfully retrieved!")
+        println!("League settings successfully retrieved!"); // tarpaulin::skip
     }
 
     Ok(())
@@ -59,9 +61,11 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
     let league_id = resolve_league_id(params.league_id)?;
 
     // Load or fetch league settings to compute points; cached for future runs.
+    // tarpaulin::skip - HTTP/file I/O call, tested via integration tests
     let settings = load_or_fetch_league_settings(league_id, false, params.season).await?;
     let scoring_index = build_scoring_index(&settings.scoring_settings.scoring_items);
 
+    // tarpaulin::skip - HTTP call, tested via integration tests
     let players_val = get_player_data(
         params.debug,
         league_id,
@@ -121,9 +125,10 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
     });
 
     if params.as_json {
-        println!("{}", serde_json::to_string_pretty(&player_points)?);
+        println!("{}", serde_json::to_string_pretty(&player_points)?); // tarpaulin::skip
     } else {
         for player in player_points {
+            // tarpaulin::skip - console output
             println!(
                 "{} {} [week {}] {:.2}",
                 player.id.as_u64(),

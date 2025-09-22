@@ -261,4 +261,60 @@ mod cache_tests {
             .to_string_lossy()
             .contains(&format!("9999_{}", u32::MAX)));
     }
+
+    #[test]
+    fn test_try_read_to_string_file_read_error() {
+        let temp_dir = TempDir::new().unwrap();
+        let file_path = temp_dir.path().join("readonly_file.txt");
+
+        // Create a file and write some content
+        fs::write(&file_path, "test content").unwrap();
+
+        // Make file unreadable (this simulates a read error)
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = fs::metadata(&file_path).unwrap().permissions();
+            perms.set_mode(0o000); // No permissions
+            fs::set_permissions(&file_path, perms).unwrap();
+
+            // Should return None due to read error
+            let result = try_read_to_string(&file_path);
+            assert!(result.is_none());
+        }
+
+        #[cfg(not(unix))]
+        {
+            // On non-Unix systems, just test that the function works normally
+            let result = try_read_to_string(&file_path);
+            assert!(result.is_some());
+        }
+    }
+
+    #[test]
+    fn test_write_string_parent_dir_creation() {
+        let temp_dir = TempDir::new().unwrap();
+        let nested_path = temp_dir
+            .path()
+            .join("deeply")
+            .join("nested")
+            .join("file.txt");
+
+        // Parent directories don't exist yet
+        assert!(!nested_path.parent().unwrap().exists());
+
+        // Should create parent directories and write file
+        let result = write_string(&nested_path, "test content");
+        assert!(result.is_ok());
+
+        // Should have created the directories
+        assert!(nested_path.parent().unwrap().exists());
+
+        // Should have written the file
+        assert!(nested_path.exists());
+
+        // Content should be correct
+        let content = fs::read_to_string(&nested_path).unwrap();
+        assert_eq!(content, "test content");
+    }
 }
