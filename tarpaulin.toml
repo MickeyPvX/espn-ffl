@@ -8,9 +8,6 @@ follow-exec = false
 # Count hits in tests
 count = true
 
-# Run tests sequentially to avoid segfaults
-test-threads = 1
-
 # Skip unstable features that can cause issues
 skip-clean = false
 
