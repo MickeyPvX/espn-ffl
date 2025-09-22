@@ -6,6 +6,7 @@ pub mod cache;
 pub mod cli;
 pub mod cli_types;
 pub mod commands;
+pub mod database;
 pub mod error;
 pub mod espn;
 pub mod filters;

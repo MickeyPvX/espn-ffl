@@ -41,10 +41,24 @@ pub enum EspnError {
 
     #[error("Invalid scoring configuration")]
     InvalidScoring,
+
+    #[error("Database error: {0}")]
+    Database(#[from] rusqlite::Error),
+
+    #[error("System time error: {0}")]
+    SystemTime(#[from] std::time::SystemTimeError),
 }
 
 impl From<Box<dyn std::error::Error + Send + Sync>> for EspnError {
     fn from(err: Box<dyn std::error::Error + Send + Sync>) -> Self {
+        EspnError::Cache {
+            message: err.to_string(),
+        }
+    }
+}
+
+impl From<anyhow::Error> for EspnError {
+    fn from(err: anyhow::Error) -> Self {
         EspnError::Cache {
             message: err.to_string(),
         }

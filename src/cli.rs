@@ -42,10 +42,6 @@ pub enum GetCmd {
         #[clap(long, short)]
         league_id: Option<LeagueId>,
 
-        /// Limit the number of results
-        #[clap(long)]
-        limit: Option<u32>,
-
         /// Filter by player last name (substring match).
         #[clap(long, short = 'n')]
         player_name: Option<String>,
@@ -65,6 +61,43 @@ pub enum GetCmd {
         /// Single week.
         #[clap(long, short, default_value_t = Week::default())]
         week: Week,
+
+        /// Force refresh player positions in database (useful after position mapping updates)
+        #[clap(long)]
+        refresh_positions: bool,
+
+        /// Clear all data from the database before fetching (useful for starting fresh)
+        #[clap(long)]
+        clear_db: bool,
+    },
+
+    /// Analyze projection accuracy and generate predictions for players.
+    ///
+    /// Uses historical projection vs actual data to adjust ESPN projections.
+    ProjectionAnalysis {
+        /// Season year (e.g. 2025).
+        #[clap(long, short, default_value_t = Season::default())]
+        season: Season,
+
+        /// Week to generate predictions for (required - uses prior weeks' data).
+        #[clap(long, short)]
+        week: Week,
+
+        /// League ID (or set `ESPN_FFL_LEAGUE_ID` env var).
+        #[clap(long, short)]
+        league_id: Option<LeagueId>,
+
+        /// Filter by player last name (substring match).
+        #[clap(long, short = 'n')]
+        player_name: Option<String>,
+
+        /// Filter by position (repeatable): `-p QB -p RB`.
+        #[clap(short = 'p', long = "position")]
+        positions: Option<Vec<Position>>,
+
+        /// Output results as JSON instead of text lines.
+        #[clap(long)]
+        json: bool,
     },
 }
 

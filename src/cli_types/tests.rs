@@ -258,6 +258,7 @@ mod position_tests {
     #[test]
     fn test_position_try_from_u8_valid() {
         assert_eq!(Position::try_from(0).unwrap(), Position::QB);
+        assert_eq!(Position::try_from(1).unwrap(), Position::QB); // ESPN also uses 1 for QB
         assert_eq!(Position::try_from(2).unwrap(), Position::RB);
         assert_eq!(Position::try_from(4).unwrap(), Position::WR);
         assert_eq!(Position::try_from(6).unwrap(), Position::TE);

@@ -53,10 +53,10 @@ pub struct LeagueEnvelope {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Player {
     pub id: PlayerId,
-    #[serde(rename = "fullName")]
-    pub full_name: String,
+    #[serde(rename = "fullName", default)]
+    pub full_name: Option<String>,
     #[serde(rename = "defaultPositionId")]
-    pub default_position_id: u8,
+    pub default_position_id: i8,
     #[serde(default)]
     pub stats: Vec<PlayerStats>,
 }
@@ -81,6 +81,7 @@ pub struct PlayerStats {
 pub struct PlayerPoints {
     pub id: PlayerId,
     pub name: String,
+    pub position: String,
     pub week: Week,
     pub projected: bool,
     pub points: f64,

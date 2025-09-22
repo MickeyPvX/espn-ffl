@@ -153,7 +153,7 @@ mod types_tests {
 
         let player: Player = serde_json::from_value(json).unwrap();
         assert_eq!(player.id.as_u64(), 123456);
-        assert_eq!(player.full_name, "Tom Brady");
+        assert_eq!(player.full_name, Some("Tom Brady".to_string()));
         assert_eq!(player.default_position_id, 0);
         assert_eq!(player.stats.len(), 1);
     }
@@ -168,7 +168,7 @@ mod types_tests {
 
         let player: Player = serde_json::from_value(json).unwrap();
         assert_eq!(player.id.as_u64(), 789012);
-        assert_eq!(player.full_name, "Unknown Player");
+        assert_eq!(player.full_name, Some("Unknown Player".to_string()));
         assert_eq!(player.default_position_id, 2);
         assert!(player.stats.is_empty());
     }
@@ -218,6 +218,7 @@ mod types_tests {
         let player_points = PlayerPoints {
             id: PlayerId::new(456789),
             name: "Patrick Mahomes".to_string(),
+            position: "QB".to_string(),
             week: Week::new(8),
             projected: true,
             points: 28.75,
@@ -306,7 +307,7 @@ mod types_tests {
 
         let player: Player = serde_json::from_value(json).unwrap();
         assert_eq!(player.id.as_u64(), 987654);
-        assert_eq!(player.full_name, "Aaron Rodgers");
+        assert_eq!(player.full_name, Some("Aaron Rodgers".to_string()));
         assert_eq!(player.stats.len(), 2);
 
         // First stat entry (actual)

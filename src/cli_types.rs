@@ -54,8 +54,20 @@ impl FromStr for Week {
 }
 
 /// Type-safe wrapper for Player IDs
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 pub struct PlayerId(pub u64);
+
+impl<'de> Deserialize<'de> for PlayerId {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let id: i64 = i64::deserialize(deserializer)?;
+        // Convert negative IDs to their absolute value
+        // ESPN sometimes uses negative IDs for certain player types
+        Ok(PlayerId(id.unsigned_abs()))
+    }
+}
 
 impl PlayerId {
     pub fn new(id: u64) -> Self {
@@ -202,12 +214,25 @@ impl TryFrom<u8> for Position {
     fn try_from(value: u8) -> std::result::Result<Self, Self::Error> {
         match value {
             0 => Ok(Position::QB),
+            1 => Ok(Position::QB), // TQB (Team QB) - map to QB
             2 => Ok(Position::RB),
+            3 => Ok(Position::RB), // RB/WR - map to RB since RB is primary
             4 => Ok(Position::WR),
+            5 => Ok(Position::WR), // WR/TE - map to WR since WR is primary
             6 => Ok(Position::TE),
-            16 => Ok(Position::D),
-            17 => Ok(Position::K),
-            23 => Ok(Position::FLEX),
+            7 => Ok(Position::FLEX),  // OP (Offensive Player) - map to FLEX
+            8 => Ok(Position::D),     // DT (Defensive Tackle)
+            9 => Ok(Position::D),     // DE (Defensive End)
+            10 => Ok(Position::D),    // LB (Linebacker)
+            11 => Ok(Position::D),    // DL (Defensive Line)
+            12 => Ok(Position::D),    // CB (Cornerback)
+            13 => Ok(Position::D),    // S (Safety)
+            14 => Ok(Position::D),    // DB (Defensive Back)
+            15 => Ok(Position::D),    // DP (Defensive Player)
+            16 => Ok(Position::D),    // D/ST (Defense/Special Teams)
+            17 => Ok(Position::K),    // K (Kicker)
+            18 => Ok(Position::K),    // P (Punter) - map to K since we don't have separate punter
+            23 => Ok(Position::FLEX), // RB/WR/TE (FLEX)
             _ => Err(format!("Unknown Position ID: {}", value)),
         }
     }

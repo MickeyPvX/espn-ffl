@@ -26,18 +26,14 @@ static CLIENT: LazyLock<Client> = LazyLock::new(|| {
 });
 
 fn get_common_headers() -> Result<HeaderMap> {
-    // Build common headers
-    let mut headers = HeaderMap::new();
-    headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
-
-    // Try to add cookies if present
-    if let Some(cookie_headers) = maybe_cookie_header_map()? {
-        for (k, v) in cookie_headers {
-            headers.insert(k.unwrap(), v); // `k` is Option<HeaderName>
-        }
+    // Try to get headers with cookies if present, otherwise build basic headers
+    if let Some(headers) = maybe_cookie_header_map()? {
+        Ok(headers)
+    } else {
+        let mut headers = HeaderMap::new();
+        headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
+        Ok(headers)
     }
-
-    Ok(headers)
 }
 
 pub async fn get_league_settings(league_id: LeagueId, season: Season) -> Result<Value> {

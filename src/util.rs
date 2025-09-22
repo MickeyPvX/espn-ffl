@@ -15,6 +15,7 @@ pub fn maybe_cookie_header_map() -> Result<Option<HeaderMap>> {
     if let (Some(swid), Some(s2)) = (swid, s2) {
         let mut h = HeaderMap::new();
         h.insert(ACCEPT, HeaderValue::from_static("application/json"));
+        // Remove curly braces from SWID if present
         let cookie = format!("SWID={}; espn_s2={}", swid, s2);
         h.insert(COOKIE, HeaderValue::from_str(&cookie)?);
         Ok(Some(h))

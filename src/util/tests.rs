@@ -178,8 +178,9 @@ mod util_tests {
 
     #[test]
     fn test_maybe_cookie_header_map_invalid_header_characters() {
-        // Test with characters that might cause header value creation to fail
-        std::env::set_var("ESPN_SWID", "swid\nwith\nnewlines");
+        // Test with characters that cause header value creation to fail
+        // Using carriage return character which is invalid in HTTP headers
+        std::env::set_var("ESPN_SWID", "swid\rwith\rcarriage\rreturn");
         std::env::set_var("ESPN_S2", "valid-s2");
 
         let result = maybe_cookie_header_map();
@@ -251,8 +252,15 @@ mod util_tests {
         std::env::set_var("ESPN_SWID", "test-swid");
         std::env::set_var("ESPN_S2", "test-s2");
 
-        let headers1 = maybe_cookie_header_map().unwrap().unwrap();
-        let headers2 = maybe_cookie_header_map().unwrap().unwrap();
+        let result1 = maybe_cookie_header_map().unwrap();
+        let result2 = maybe_cookie_header_map().unwrap();
+
+        // Both should return Some since env vars are set
+        assert!(result1.is_some());
+        assert!(result2.is_some());
+
+        let headers1 = result1.unwrap();
+        let headers2 = result2.unwrap();
 
         // Should be independent (different memory locations)
         assert_ne!(std::ptr::addr_of!(headers1), std::ptr::addr_of!(headers2));
@@ -260,6 +268,13 @@ mod util_tests {
         // But should have the same content
         assert_eq!(headers1.get("cookie"), headers2.get("cookie"));
         assert_eq!(headers1.get("accept"), headers2.get("accept"));
+
+        // Verify the actual content is what we set
+        let expected_cookie = "SWID=test-swid; espn_s2=test-s2";
+        assert_eq!(
+            headers1.get("cookie").unwrap().to_str().unwrap(),
+            expected_cookie
+        );
 
         // Clean up
         std::env::remove_var("ESPN_SWID");
