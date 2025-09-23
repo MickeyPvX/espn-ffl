@@ -1,6 +1,6 @@
 [package]
 name = "espn-ffl"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
 
 [dependencies]
@@ -17,7 +17,7 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 [dev-dependencies]
 assert_matches = "1.5"
 mockall = "0.12"
-tempfile = "3.22"
+tempfile = "3.23"
 tokio-test = "0.4"
 wiremock = "0.5"
 
