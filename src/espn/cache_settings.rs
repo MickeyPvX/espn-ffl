@@ -1,11 +1,11 @@
 // src/espn/cache_settings.rs
 use serde_json::Value;
 
-use crate::cache::{league_settings_path, try_read_to_string, write_string};
+use crate::core::{league_settings_path, try_read_to_string, write_string};
 use crate::espn::types::LeagueEnvelope;
 use crate::espn::{http::get_league_settings, types::LeagueSettings};
 use crate::{
-    cli_types::{LeagueId, Season},
+    cli::types::{LeagueId, Season},
     Result,
 };
 

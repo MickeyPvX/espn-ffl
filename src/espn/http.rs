@@ -6,9 +6,8 @@ use serde_json::Value;
 use std::sync::LazyLock;
 
 use crate::{
-    cli_types::{LeagueId, Position, Season, Week},
-    filters::{build_players_filter, IntoHeaderValue},
-    util::maybe_cookie_header_map,
+    cli::types::{LeagueId, Position, Season, Week},
+    core::{build_players_filter, maybe_cookie_header_map, IntoHeaderValue},
     Result,
 };
 
@@ -63,14 +62,14 @@ pub async fn get_player_data(
     debug: bool,
     league_id: LeagueId,
     limit: Option<u32>,
-    player_name: Option<String>,
+    player_names: Option<Vec<String>>,
     positions: Option<Vec<Position>>,
     season: Season,
     week: Week,
 ) -> Result<Value> {
     // Build the filters from cli args
-    let slots: Option<Vec<u8>> = positions.map(|ps| ps.into_iter().map(u8::from).collect());
-    let players_filter = build_players_filter(limit, player_name, slots, None);
+    let slots: Option<Vec<u8>> = positions.map(|ps| ps.into_iter().map(|p| p.to_u8()).collect());
+    let players_filter = build_players_filter(limit, player_names, slots, None);
 
     let mut headers = get_common_headers()?;
     headers.insert("x-fantasy-filter", players_filter.to_header_value()?);

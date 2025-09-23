@@ -4,7 +4,9 @@ use clap::Parser;
 use espn_ffl::{
     cli::{Commands, GetCmd, ESPN},
     commands::{
-        handle_league_data, handle_player_data, handle_projection_analysis, PlayerDataParams,
+        league_data::handle_league_data,
+        player_data::{handle_player_data, PlayerDataParams},
+        projection_analysis::handle_projection_analysis,
     },
     Result,
 };
@@ -24,42 +26,49 @@ async fn main() -> Result<()> {
             } => handle_league_data(league_id, refresh, season, verbose).await?,
 
             GetCmd::PlayerData {
+                filters,
                 debug,
                 json,
-                league_id,
-                player_name,
-                positions,
                 projected,
-                season,
-                week,
                 refresh_positions,
                 clear_db,
+                refresh,
             } => {
                 handle_player_data(PlayerDataParams {
                     debug,
                     as_json: json,
-                    league_id,
-                    player_name,
-                    positions,
+                    league_id: filters.league_id,
+                    player_name: filters.player_name,
+                    positions: filters.positions,
                     projected,
-                    season,
-                    week,
+                    season: filters.season,
+                    week: filters.week,
                     refresh_positions,
                     clear_db,
+                    refresh,
                 })
                 .await?
             }
 
             GetCmd::ProjectionAnalysis {
-                season,
-                week,
-                league_id,
-                player_name,
-                positions,
+                filters,
                 json,
+                refresh,
+                bias_strength,
             } => {
-                handle_projection_analysis(season, week, league_id, player_name, positions, json)
-                    .await?
+                // Default to 1.0 (original conservative approach) if not specified
+                let bias_factor = bias_strength.unwrap_or(1.0);
+                handle_projection_analysis(
+                    filters.season,
+                    filters.week,
+                    filters.league_id,
+                    filters.player_name,
+                    filters.positions,
+                    json,
+                    refresh,
+                    bias_factor,
+                )
+                .await?
             }
         },
     }

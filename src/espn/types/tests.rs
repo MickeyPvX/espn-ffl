@@ -152,7 +152,7 @@ mod types_tests {
         });
 
         let player: Player = serde_json::from_value(json).unwrap();
-        assert_eq!(player.id.as_u64(), 123456);
+        assert_eq!(player.id, 123456);
         assert_eq!(player.full_name, Some("Tom Brady".to_string()));
         assert_eq!(player.default_position_id, 0);
         assert_eq!(player.stats.len(), 1);
@@ -167,7 +167,7 @@ mod types_tests {
         });
 
         let player: Player = serde_json::from_value(json).unwrap();
-        assert_eq!(player.id.as_u64(), 789012);
+        assert_eq!(player.id, 789012);
         assert_eq!(player.full_name, Some("Unknown Player".to_string()));
         assert_eq!(player.default_position_id, 2);
         assert!(player.stats.is_empty());
@@ -306,7 +306,7 @@ mod types_tests {
         });
 
         let player: Player = serde_json::from_value(json).unwrap();
-        assert_eq!(player.id.as_u64(), 987654);
+        assert_eq!(player.id, 987654);
         assert_eq!(player.full_name, Some("Aaron Rodgers".to_string()));
         assert_eq!(player.stats.len(), 2);
 

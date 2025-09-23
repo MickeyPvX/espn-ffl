@@ -3,17 +3,18 @@
 [![CI](https://github.com/MickeyPvX/espn-ffl/workflows/CI/badge.svg)](https://github.com/MickeyPvX/espn-ffl/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/MickeyPvX/espn-ffl/branch/main/graph/badge.svg)](https://codecov.io/gh/MickeyPvX/espn-ffl)
 
-A fast, reliable command-line tool for querying ESPN Fantasy Football player statistics and points. Built in Rust for performance and type safety.
+A fast, reliable command-line tool for querying ESPN Fantasy Football player statistics and advanced projection analysis. Built in Rust for performance and type safety.
 
 ## What it does
 
-- **Query player stats** by name, position, or both
+- **Query player stats** by name, position, or both (supports multiple filters)
 - **Get actual or projected points** for any week and season
-- **Filter results** to find exactly what you need
+- **Projection analysis** - Compare ESPN projections vs. actual performance with bias correction
+- **FLEX position support** - Filter by FLEX to get RB/WR/TE players
 - **Export data** as JSON for analysis or integration
 - **Cache league settings** for faster subsequent queries
 
-Perfect for fantasy football analysis, automation, or just checking how your players performed.
+Perfect for fantasy football analysis, automation, lineup optimization, or projection accuracy research.
 
 ## Installation
 
@@ -68,11 +69,14 @@ Your league ID is in the URL when viewing your league:
 # Get all players for week 3 of 2024 season
 espn-ffl get player-data --week 3 --season 2024
 
-# Find a specific player
-espn-ffl get player-data -n "Josh Allen" --week 1
+# Find specific players (repeatable)
+espn-ffl get player-data -n "Josh Allen" -n "Travis Kelce" --week 1
 
 # Get all quarterbacks and wide receivers
 espn-ffl get player-data -p QB -p WR --week 2
+
+# Get FLEX-eligible players (RB/WR/TE)
+espn-ffl get player-data -p FLEX --week 1
 
 # Get projected points instead of actual
 espn-ffl get player-data --week 1 --proj
@@ -94,9 +98,23 @@ espn-ffl get player-data --week 1
 **Default output** (sorted by points, highest first):
 
 ```text
-3139477 Josh Allen [week 1] 24.12
-4361370 Lamar Jackson [week 1] 22.88
-2330 Aaron Rodgers [week 1] 19.44
+3918298 Josh Allen (QB) [week 1] 38.76
+3916387 Lamar Jackson (QB) [week 1] 35.44
+15847 Travis Kelce (TE) [week 1] 18.20
+4426515 Puka Nacua (WR) [week 1] 15.90
+```
+
+**Projection analysis** with bias correction:
+
+```bash
+espn-ffl get projection-analysis -n "Josh Allen" -n "Travis Kelce" --week 4
+```
+
+```text
+Name                 Pos      ESPN     Adj      Final    Conf%
+----                 ---      ----     ---      -----    ----
+Josh Allen           QB       22.7     +1.9     24.5     19      %
+Travis Kelce         TE       11.3     -1.7     9.6      29      %
 ```
 
 **JSON output** for scripting/analysis:
@@ -108,11 +126,12 @@ espn-ffl get player-data -n "Josh Allen" --week 1 --json
 ```json
 [
   {
-    "id": 3139477,
+    "id": 3918298,
     "name": "Josh Allen",
+    "position": "QB",
     "week": 1,
     "projected": false,
-    "points": 24.12
+    "points": 38.76
   }
 ]
 ```
@@ -125,6 +144,12 @@ espn-ffl get player-data --week 1 --debug
 
 # Cache league settings for faster queries
 espn-ffl get league-data --league-id 123456 --season 2024
+
+# Projection analysis with custom bias strength
+espn-ffl get projection-analysis --week 2 --bias-strength 1.5
+
+# Get projection analysis as JSON for processing
+espn-ffl get projection-analysis --week 2 --json
 ```
 
 ## Common workflows
@@ -132,18 +157,21 @@ espn-ffl get league-data --league-id 123456 --season 2024
 **Check your lineup performance:**
 
 ```bash
-# Get your starting QB and RBs for the week
-espn-ffl get player-data -p QB -p RB --week 3
+# Get your starting QB and FLEX players for the week
+espn-ffl get player-data -p QB -p FLEX --week 3
+
+# Compare multiple players
+espn-ffl get player-data -n "Josh Allen" -n "Lamar Jackson" -n "Patrick Mahomes" --week 1
 ```
 
-**Compare projections vs actual:**
+**Advanced projection analysis:**
 
 ```bash
-# Projected points
-espn-ffl get player-data -n "Patrick Mahomes" --week 3 --proj
+# Analyze ESPN's projection accuracy for top QBs
+espn-ffl get projection-analysis -p QB --week 2
 
-# Actual points
-espn-ffl get player-data -n "Patrick Mahomes" --week 3
+# Check bias correction for specific players
+espn-ffl get projection-analysis -n "Travis Kelce" -n "Puka Nacua" --week 3
 ```
 
 **Export for analysis:**
@@ -151,6 +179,9 @@ espn-ffl get player-data -n "Patrick Mahomes" --week 3
 ```bash
 # Get all week 1 data as JSON
 espn-ffl get player-data --week 1 --json > week1_stats.json
+
+# Export projection analysis
+espn-ffl get projection-analysis --week 2 --json > week2_projections.json
 ```
 
 ## Troubleshooting
