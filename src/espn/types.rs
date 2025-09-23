@@ -1,4 +1,4 @@
-use crate::cli_types::{PlayerId, Season, Week};
+use crate::cli::types::{PlayerId, Season, Week};
 use serde::{de::Error, Deserialize, Deserializer, Serialize};
 use std::collections::BTreeMap;
 
@@ -52,11 +52,11 @@ pub struct LeagueEnvelope {
 /// Player data from ESPN API
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Player {
-    pub id: PlayerId,
-    #[serde(rename = "fullName")]
-    pub full_name: String,
+    pub id: i64, // Raw ESPN ID, we'll convert to PlayerId after filtering
+    #[serde(rename = "fullName", default)]
+    pub full_name: Option<String>,
     #[serde(rename = "defaultPositionId")]
-    pub default_position_id: u8,
+    pub default_position_id: i8,
     #[serde(default)]
     pub stats: Vec<PlayerStats>,
 }
@@ -81,6 +81,7 @@ pub struct PlayerStats {
 pub struct PlayerPoints {
     pub id: PlayerId,
     pub name: String,
+    pub position: String,
     pub week: Week,
     pub projected: bool,
     pub points: f64,
