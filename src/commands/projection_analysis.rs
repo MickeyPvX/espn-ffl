@@ -1,7 +1,7 @@
 //! Projection analysis command implementation
 
 use crate::{
-    cli::types::{LeagueId, PlayerId, Position, Season, Week},
+    cli::types::{LeagueId, Position, Season, Week},
     espn::{
         cache_settings::load_or_fetch_league_settings,
         compute::{build_scoring_index, compute_points_for_week, select_weekly_stats},
@@ -11,7 +11,7 @@ use crate::{
     Result,
 };
 
-use super::resolve_league_id;
+use super::{player_filters::filter_and_convert_players, resolve_league_id};
 
 /// Handle the projection analysis command (simplified version)
 #[allow(clippy::too_many_arguments)]
@@ -82,29 +82,9 @@ pub async fn handle_projection_analysis(
     let mut projected_points_data = Vec::new();
 
     // Calculate ESPN projections for each player
-    for player in players {
-        // Skip invalid player IDs, team placeholder entries, and individual defensive players
-        if player.id < 0
-            || player.default_position_id == 15
-            || (player.default_position_id >= 8 && player.default_position_id <= 15)
-        {
-            continue;
-        }
-
-        // Apply local player name filtering for multiple names
-        if let Some(names) = &player_names {
-            if names.len() > 1 {
-                let player_name = player.full_name.as_deref().unwrap_or("");
-                let matches = names
-                    .iter()
-                    .any(|name| player_name.to_lowercase().contains(&name.to_lowercase()));
-                if !matches {
-                    continue;
-                }
-            }
-        }
-
-        let player_id = PlayerId::new(player.id as u64);
+    for filtered_player in filter_and_convert_players(players, player_names.clone()) {
+        let player = filtered_player.original_player;
+        let player_id = filtered_player.player_id;
 
         if let Some(weekly_stats) = select_weekly_stats(
             &serde_json::to_value(&player)?,
