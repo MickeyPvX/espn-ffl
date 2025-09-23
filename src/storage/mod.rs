@@ -18,4 +18,3 @@ mod tests;
 // Re-export the main types and database struct for easy access
 pub use models::*;
 pub use schema::PlayerDatabase;
-

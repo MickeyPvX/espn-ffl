@@ -1,8 +1,8 @@
 //! League data command implementation
 
 use crate::{
-    core::league_settings_path,
     cli::types::{LeagueId, Season},
+    core::league_settings_path,
     espn::cache_settings::load_or_fetch_league_settings,
     Result,
 };
@@ -32,11 +32,11 @@ pub async fn handle_league_data(
     if verbose {
         let path = league_settings_path(season.as_u16(), league_id.as_u32());
         println!("League settings cached at: {}", path.display()); // tarpaulin::skip
+        println!("League ID: {}, Season: {}", league_id, season); // tarpaulin::skip
         println!(
-            "League ID: {}, Season: {}",
-            league_id, season
+            "Scoring settings: {} items",
+            settings.scoring_settings.scoring_items.len()
         ); // tarpaulin::skip
-        println!("Scoring settings: {} items", settings.scoring_settings.scoring_items.len()); // tarpaulin::skip
     }
 
     Ok(())

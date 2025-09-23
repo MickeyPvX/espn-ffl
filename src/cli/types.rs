@@ -139,9 +139,9 @@ impl Position {
         match self {
             Position::QB => 0,
             Position::RB => 2,
-            Position::WR => 3,  // ESPN actually uses 3 for WRs in responses
-            Position::TE => 4,  // ESPN uses 4 for pass-catching TEs
-            Position::K => 5,   // ESPN uses 5 for kickers in responses
+            Position::WR => 3, // ESPN actually uses 3 for WRs in responses
+            Position::TE => 4, // ESPN uses 4 for pass-catching TEs
+            Position::K => 5,  // ESPN uses 5 for kickers in responses
             Position::DEF => 16,
             Position::FLEX => 23,
         }
@@ -176,7 +176,10 @@ impl TryFrom<u8> for Position {
             23 => Ok(Position::FLEX), // RB/WR/TE (FLEX)
             // Reject individual defensive players (8-15) - league doesn't allow them
             8..=15 => Err(EspnError::InvalidPosition {
-                position: format!("Individual defensive players not allowed in this league (position ID: {})", value),
+                position: format!(
+                    "Individual defensive players not allowed in this league (position ID: {})",
+                    value
+                ),
             }),
             _ => Err(EspnError::InvalidPosition {
                 position: format!("Unknown position ID: {}", value),

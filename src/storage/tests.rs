@@ -278,7 +278,13 @@ fn test_estimate_week_performance_no_data() {
     let projected_data = vec![(PlayerId::new(12345), 20.0), (PlayerId::new(12346), 15.0)];
 
     let estimates = db
-        .estimate_week_performance(Season::new(2023), Week::new(5), &projected_data, Some(10), 1.0)
+        .estimate_week_performance(
+            Season::new(2023),
+            Week::new(5),
+            &projected_data,
+            Some(10),
+            1.0,
+        )
         .unwrap();
 
     assert_eq!(estimates.len(), 2);

@@ -2,18 +2,19 @@
 
 use crate::{
     cli::types::{LeagueId, PlayerId, Position, Season, Week},
-    storage::PlayerDatabase,
     espn::{
         cache_settings::load_or_fetch_league_settings,
         compute::{build_scoring_index, compute_points_for_week, select_weekly_stats},
         http::get_player_data,
     },
+    storage::PlayerDatabase,
     Result,
 };
 
 use super::resolve_league_id;
 
 /// Handle the projection analysis command (simplified version)
+#[allow(clippy::too_many_arguments)]
 pub async fn handle_projection_analysis(
     season: Season,
     week: Week,
@@ -45,7 +46,10 @@ pub async fn handle_projection_analysis(
         serde_json::Value::Array(vec![])
     } else {
         if !as_json {
-            println!("Fetching fresh ESPN projections for Week {}...", week.as_u16());
+            println!(
+                "Fetching fresh ESPN projections for Week {}...",
+                week.as_u16()
+            );
         }
         get_player_data(
             false, // debug = false
@@ -69,7 +73,10 @@ pub async fn handle_projection_analysis(
     let scoring_index = build_scoring_index(&settings.scoring_settings.scoring_items);
 
     if !players.is_empty() && !as_json {
-        println!("Computing ESPN projections for {} players...", players.len());
+        println!(
+            "Computing ESPN projections for {} players...",
+            players.len()
+        );
     }
 
     let mut projected_points_data = Vec::new();
@@ -79,7 +86,8 @@ pub async fn handle_projection_analysis(
         // Skip invalid player IDs, team placeholder entries, and individual defensive players
         if player.id < 0
             || player.default_position_id == 15
-            || (player.default_position_id >= 8 && player.default_position_id <= 15) {
+            || (player.default_position_id >= 8 && player.default_position_id <= 15)
+        {
             continue;
         }
 
@@ -87,9 +95,9 @@ pub async fn handle_projection_analysis(
         if let Some(names) = &player_names {
             if names.len() > 1 {
                 let player_name = player.full_name.as_deref().unwrap_or("");
-                let matches = names.iter().any(|name|
-                    player_name.to_lowercase().contains(&name.to_lowercase())
-                );
+                let matches = names
+                    .iter()
+                    .any(|name| player_name.to_lowercase().contains(&name.to_lowercase()));
                 if !matches {
                     continue;
                 }
@@ -122,12 +130,14 @@ pub async fn handle_projection_analysis(
     if !as_json {
         println!("Analyzing historical performance bias and generating predictions...");
     }
-    let estimates = db.estimate_week_performance(season, week, &projected_points_data, None, bias_strength)?;
+    let estimates =
+        db.estimate_week_performance(season, week, &projected_points_data, None, bias_strength)?;
 
     if estimates.is_empty() {
         if !as_json {
             println!("No projection data available for week {}.", week.as_u16()); // tarpaulin::skip
-            println!("Make sure to fetch historical data for previous weeks first."); // tarpaulin::skip
+            println!("Make sure to fetch historical data for previous weeks first.");
+            // tarpaulin::skip
         }
         return Ok(());
     }
@@ -137,13 +147,11 @@ pub async fn handle_projection_analysis(
         .into_iter()
         .filter(|estimate| {
             if let Some(pos_filters) = &positions {
-                pos_filters
-                    .iter()
-                    .any(|p| {
-                        p.get_eligible_positions()
-                            .iter()
-                            .any(|eligible_pos| estimate.position == eligible_pos.to_string())
-                    })
+                pos_filters.iter().any(|p| {
+                    p.get_eligible_positions()
+                        .iter()
+                        .any(|eligible_pos| estimate.position == eligible_pos.to_string())
+                })
             } else {
                 true
             }
@@ -151,7 +159,10 @@ pub async fn handle_projection_analysis(
         .collect();
 
     if !as_json {
-        println!("✓ Generated predictions for {} players", filtered_estimates.len());
+        println!(
+            "✓ Generated predictions for {} players",
+            filtered_estimates.len()
+        );
     }
 
     if as_json {

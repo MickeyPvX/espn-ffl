@@ -1,8 +1,8 @@
 //! ESPN API filter utilities
 
+use crate::Result;
 use reqwest::header::HeaderValue;
 use serde::Serialize;
-use crate::Result;
 
 /// Wraps ESPN-style `{ "value": ... }`
 #[derive(Debug, Serialize)]
@@ -58,7 +58,9 @@ pub fn build_players_filter(
     if let Some(names) = player_names {
         // If only one name, use ESPN filter for efficiency
         if names.len() == 1 {
-            f.filter_name = Some(Val { value: names[0].clone() });
+            f.filter_name = Some(Val {
+                value: names[0].clone(),
+            });
         }
         // If multiple names, we'll filter locally after fetching all players
         // (don't set filter_name so ESPN returns all players)

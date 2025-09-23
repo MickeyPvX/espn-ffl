@@ -173,13 +173,11 @@ impl PlayerDatabase {
                     COALESCE(pws.projected_points, pws.actual_points) as points
              FROM players p
              JOIN player_weekly_stats pws ON p.player_id = pws.player_id
-             WHERE pws.season = ? AND pws.week = ?"
+             WHERE pws.season = ? AND pws.week = ?",
         );
 
-        let mut params: Vec<Box<dyn rusqlite::ToSql>> = vec![
-            Box::new(season.as_u16()),
-            Box::new(week.as_u16()),
-        ];
+        let mut params: Vec<Box<dyn rusqlite::ToSql>> =
+            vec![Box::new(season.as_u16()), Box::new(week.as_u16())];
 
         // Add projected/actual filter
         if projected {
@@ -199,7 +197,7 @@ impl PlayerDatabase {
                     query.push_str("p.name LIKE ?");
                     params.push(Box::new(format!("%{}%", name)));
                 }
-                query.push_str(")");
+                query.push(')');
             }
         }
 
@@ -279,7 +277,7 @@ impl PlayerDatabase {
                     query.push_str("p.name LIKE ?");
                     params.push(Box::new(format!("%{}%", name)));
                 }
-                query.push_str(")");
+                query.push(')');
             }
         }
 

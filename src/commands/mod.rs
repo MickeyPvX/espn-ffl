@@ -30,7 +30,6 @@ pub fn resolve_league_id(league_id: Option<LeagueId>) -> Result<LeagueId> {
             Err(_) => Err(EspnError::MissingLeagueId {
                 env_var: LEAGUE_ID_ENV_VAR.to_string(),
             }),
-        }
+        },
     }
 }
-

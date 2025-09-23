@@ -44,6 +44,6 @@ pub struct PerformanceEstimate {
     pub espn_projection: f64,  // Original ESPN projection
     pub bias_adjustment: f64,  // +/- adjustment applied
     pub estimated_points: f64, // Final adjusted estimate
-    pub confidence: f64, // 0.0 to 1.0
+    pub confidence: f64,       // 0.0 to 1.0
     pub reasoning: String,
 }

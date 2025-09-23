@@ -2,13 +2,13 @@
 
 use crate::{
     cli::types::{LeagueId, PlayerId, Position, Season, Week},
-    storage::{Player, PlayerDatabase, PlayerWeeklyStats},
     espn::{
         cache_settings::load_or_fetch_league_settings,
         compute::{build_scoring_index, compute_points_for_week, select_weekly_stats},
         http::get_player_data,
         types::PlayerPoints,
     },
+    storage::{Player, PlayerDatabase, PlayerWeeklyStats},
     Result,
 };
 
@@ -54,10 +54,20 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
     let use_cached = !params.refresh
         && params.player_name.is_none()
         && params.positions.is_none()
-        && db.has_data_for_week(params.season, params.week, params.player_name.as_ref(), None, Some(params.projected))?;
+        && db.has_data_for_week(
+            params.season,
+            params.week,
+            params.player_name.as_ref(),
+            None,
+            Some(params.projected),
+        )?;
 
     if use_cached {
-        println!("Using cached player data for Season {} Week {}...", params.season.as_u16(), params.week.as_u16());
+        println!(
+            "Using cached player data for Season {} Week {}...",
+            params.season.as_u16(),
+            params.week.as_u16()
+        );
 
         // Get cached data directly from database
         let cached_data = db.get_cached_player_data(
@@ -80,7 +90,11 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
             });
         }
     } else {
-        println!("Fetching fresh player data from ESPN for Season {} Week {}...", params.season.as_u16(), params.week.as_u16());
+        println!(
+            "Fetching fresh player data from ESPN for Season {} Week {}...",
+            params.season.as_u16(),
+            params.week.as_u16()
+        );
 
         // tarpaulin::skip - HTTP call, tested via integration tests
         let players_val = get_player_data(
@@ -96,14 +110,18 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
 
         // Deserialize directly into Vec<Player>
         let players: Vec<crate::espn::types::Player> = serde_json::from_value(players_val)?;
-        println!("Processing {} players and calculating fantasy points...", players.len());
+        println!(
+            "Processing {} players and calculating fantasy points...",
+            players.len()
+        );
         let stat_source = if params.projected { 1 } else { 0 };
 
         for player in players {
             // Skip invalid player IDs, team placeholder entries, and individual defensive players
             if player.id < 0
                 || player.default_position_id == 15
-                || (player.default_position_id >= 8 && player.default_position_id <= 15) {
+                || (player.default_position_id >= 8 && player.default_position_id <= 15)
+            {
                 continue;
             }
 
@@ -111,9 +129,9 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
             if let Some(names) = &params.player_name {
                 if names.len() > 1 {
                     let player_name = player.full_name.as_deref().unwrap_or("");
-                    let matches = names.iter().any(|name|
-                        player_name.to_lowercase().contains(&name.to_lowercase())
-                    );
+                    let matches = names
+                        .iter()
+                        .any(|name| player_name.to_lowercase().contains(&name.to_lowercase()));
                     if !matches {
                         continue;
                     }
@@ -132,7 +150,7 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
 
             // Store player info in database
             let db_player = Player {
-                player_id: player_id,
+                player_id,
                 name: player
                     .full_name
                     .clone()
@@ -157,7 +175,7 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
 
                 // Store weekly stats in database
                 let weekly_db_stats = PlayerWeeklyStats {
-                    player_id: player_id,
+                    player_id,
                     season: params.season,
                     week: params.week,
                     projected_points: if params.projected { Some(points) } else { None },
@@ -187,7 +205,10 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
         }
     }
 
-    println!("✓ Found {} players with fantasy points", player_points.len());
+    println!(
+        "✓ Found {} players with fantasy points",
+        player_points.len()
+    );
 
     // Sort descending by points
     player_points.sort_by(|a, b| {

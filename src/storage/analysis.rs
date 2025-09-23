@@ -178,7 +178,7 @@ impl PlayerDatabase {
                 1.0 // Perfect consistency
             };
 
-            let confidence = (sample_confidence * consistency_factor).max(0.1).min(1.0);
+            let confidence = (sample_confidence * consistency_factor).clamp(0.1, 1.0);
 
             // Generate reasoning
             let reasoning = if games_count < 3 {
