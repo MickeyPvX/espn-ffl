@@ -9,7 +9,34 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  validate-version:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate tag matches Cargo.toml version
+        run: |
+          # Extract version from Cargo.toml
+          CARGO_VERSION=$(grep '^version = ' Cargo.toml | sed 's/version = "\(.*\)"/\1/')
+
+          # Extract version from git tag (remove 'v' prefix)
+          TAG_VERSION=${GITHUB_REF_NAME#v}
+
+          echo "Cargo.toml version: $CARGO_VERSION"
+          echo "Git tag version: $TAG_VERSION"
+
+          if [ "$CARGO_VERSION" != "$TAG_VERSION" ]; then
+            echo "❌ Version mismatch!"
+            echo "Cargo.toml version: $CARGO_VERSION"
+            echo "Git tag version: $TAG_VERSION"
+            exit 1
+          fi
+
+          echo "✅ Versions match!"
+
   create-release:
+    needs: validate-version
     runs-on: ubuntu-latest
     outputs:
       upload_url: ${{ steps.create_release.outputs.upload_url }}
