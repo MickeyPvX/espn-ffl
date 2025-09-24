@@ -97,6 +97,7 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
         );
 
         // tarpaulin::skip - HTTP call, tested via integration tests
+        let positions_clone = params.positions.clone();
         let players_val = get_player_data(
             params.debug,
             league_id,
@@ -116,7 +117,9 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
         );
         let stat_source = if params.projected { 1 } else { 0 };
 
-        for filtered_player in filter_and_convert_players(players, params.player_name.clone()) {
+        for filtered_player in
+            filter_and_convert_players(players, params.player_name.clone(), positions_clone)
+        {
             let player = filtered_player.original_player;
             let player_id = filtered_player.player_id;
 

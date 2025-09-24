@@ -82,7 +82,9 @@ pub async fn handle_projection_analysis(
     let mut projected_points_data = Vec::new();
 
     // Calculate ESPN projections for each player
-    for filtered_player in filter_and_convert_players(players, player_names.clone()) {
+    for filtered_player in
+        filter_and_convert_players(players, player_names.clone(), positions.clone())
+    {
         let player = filtered_player.original_player;
         let player_id = filtered_player.player_id;
 
