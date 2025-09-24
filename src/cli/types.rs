@@ -155,6 +155,20 @@ impl Position {
             other => vec![other.clone()],
         }
     }
+
+    /// Returns all possible ESPN position IDs for this position type.
+    /// Some positions like K can have multiple IDs (5, 17, 18).
+    pub fn get_all_position_ids(&self) -> Vec<u8> {
+        match self {
+            Position::QB => vec![0, 1], // QB and TQB
+            Position::RB => vec![2],
+            Position::WR => vec![3],
+            Position::TE => vec![4, 6],
+            Position::K => vec![5, 17, 18], // K, K, P (punter)
+            Position::DEF => vec![16],
+            Position::FLEX => vec![2, 3, 4, 6], // RB, WR, TE positions
+        }
+    }
 }
 
 impl TryFrom<u8> for Position {

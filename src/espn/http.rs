@@ -68,7 +68,11 @@ pub async fn get_player_data(
     week: Week,
 ) -> Result<Value> {
     // Build the filters from cli args
-    let slots: Option<Vec<u8>> = positions.map(|ps| ps.into_iter().map(|p| p.to_u8()).collect());
+    let slots: Option<Vec<u8>> = positions.map(|ps| {
+        ps.into_iter()
+            .flat_map(|p| p.get_all_position_ids())
+            .collect()
+    });
     let players_filter = build_players_filter(limit, player_names, slots, None);
 
     let mut headers = get_common_headers()?;
