@@ -1,11 +1,11 @@
 //! Projection analysis command implementation
 
 use crate::{
-    cli::types::{LeagueId, Position, Season, Week},
+    cli::types::{InjuryStatusFilter, LeagueId, Position, RosterStatusFilter, Season, Week},
     espn::{
         cache_settings::load_or_fetch_league_settings,
         compute::{build_scoring_index, compute_points_for_week, select_weekly_stats},
-        http::get_player_data,
+        http::{get_player_data, PlayerDataRequest},
     },
     storage::PlayerDatabase,
     Result,
@@ -24,6 +24,8 @@ pub async fn handle_projection_analysis(
     as_json: bool,
     refresh: bool,
     bias_strength: f64,
+    injury_status: Option<InjuryStatusFilter>,
+    roster_status: Option<RosterStatusFilter>,
 ) -> Result<()> {
     let league_id = resolve_league_id(league_id)?;
     if !as_json {
@@ -51,15 +53,16 @@ pub async fn handle_projection_analysis(
                 week.as_u16()
             );
         }
-        get_player_data(
-            false, // debug = false
+        get_player_data(PlayerDataRequest {
+            debug: false,
             league_id,
-            None, // Don't pass limit to ESPN API
-            player_names.clone(),
-            positions.clone(),
+            player_names: player_names.clone(),
+            positions: positions.clone(),
             season,
             week,
-        )
+            injury_status_filter: injury_status.clone(),
+            roster_status_filter: roster_status.clone(),
+        })
         .await?
     };
 
@@ -160,11 +163,11 @@ pub async fn handle_projection_analysis(
 
         // Print column headers
         println!(
-            "{:<20} {:<8} {:<8} {:<8} {:<8} {:<8}",
+            "{:<20} {:<8} {:<8} {:<8} {:<8} {:<8} Reasoning",
             "Name", "Pos", "ESPN", "Adj", "Final", "Conf%"
         );
         println!(
-            "{:<20} {:<8} {:<8} {:<8} {:<8} {:<8}",
+            "{:<20} {:<8} {:<8} {:<8} {:<8} {:<8} ---------",
             "----", "---", "----", "---", "-----", "----"
         );
 
@@ -178,13 +181,14 @@ pub async fn handle_projection_analysis(
             };
 
             println!(
-                "{:<20} {:<8} {:<8.1} {:<8} {:<8.1} {:<8}%",
+                "{:<20} {:<8} {:<8.1} {:<8} {:<8.1} {:<8}% {}",
                 estimate.name.chars().take(20).collect::<String>(),
                 estimate.position,
                 estimate.espn_projection,
                 adj_str,
                 estimate.estimated_points,
-                (estimate.confidence * 100.0) as u8
+                (estimate.confidence * 100.0) as u8,
+                estimate.reasoning
             );
         }
     }

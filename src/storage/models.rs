@@ -1,6 +1,9 @@
 //! Data models for the storage layer
 
-use crate::cli::types::{PlayerId, Season, Week};
+use crate::{
+    cli::types::{PlayerId, Season, Week},
+    espn::types::InjuryStatus,
+};
 use serde::{Deserialize, Serialize};
 
 /// Player information stored in the database
@@ -20,8 +23,70 @@ pub struct PlayerWeeklyStats {
     pub week: Week,
     pub projected_points: Option<f64>,
     pub actual_points: Option<f64>,
+    pub active: Option<bool>,
+    pub injured: Option<bool>,
+    pub injury_status: Option<InjuryStatus>,
+    pub is_rostered: Option<bool>,
+    pub fantasy_team_id: Option<u32>,
+    pub fantasy_team_name: Option<String>,
     pub created_at: u64,
     pub updated_at: u64,
+}
+
+impl PlayerWeeklyStats {
+    /// Create a minimal PlayerWeeklyStats for testing
+    #[cfg(test)]
+    pub fn test_minimal(
+        player_id: PlayerId,
+        season: Season,
+        week: Week,
+        projected_points: Option<f64>,
+        actual_points: Option<f64>,
+    ) -> Self {
+        Self {
+            player_id,
+            season,
+            week,
+            projected_points,
+            actual_points,
+            active: Some(true),
+            injured: Some(false),
+            injury_status: None,
+            is_rostered: Some(false),
+            fantasy_team_id: None,
+            fantasy_team_name: None,
+            created_at: 0,
+            updated_at: 0,
+        }
+    }
+
+    /// Create a PlayerWeeklyStats with all required fields and some defaults
+    #[cfg(test)]
+    pub fn test_with_fields(
+        player_id: PlayerId,
+        season: Season,
+        week: Week,
+        projected_points: Option<f64>,
+        actual_points: Option<f64>,
+        created_at: u64,
+        updated_at: u64,
+    ) -> Self {
+        Self {
+            player_id,
+            season,
+            week,
+            projected_points,
+            actual_points,
+            active: Some(true),
+            injured: Some(false),
+            injury_status: None,
+            is_rostered: Some(false),
+            fantasy_team_id: None,
+            fantasy_team_name: None,
+            created_at,
+            updated_at,
+        }
+    }
 }
 
 /// Analysis of projection accuracy for a player

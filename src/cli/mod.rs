@@ -3,7 +3,7 @@
 pub mod types;
 
 use clap::{Args, Parser, Subcommand};
-use types::{LeagueId, Position, Season, Week};
+use types::{InjuryStatusFilter, LeagueId, Position, RosterStatusFilter, Season, Week};
 
 /// Common filtering arguments shared between commands
 #[derive(Debug, Args)]
@@ -27,6 +27,14 @@ pub struct CommonFilters {
     /// Single week.
     #[clap(long, short, default_value_t = Week::default())]
     pub week: Week,
+
+    /// Filter by injury status.
+    #[clap(long)]
+    pub injury_status: Option<InjuryStatusFilter>,
+
+    /// Filter by roster status.
+    #[clap(long)]
+    pub roster_status: Option<RosterStatusFilter>,
 }
 
 #[derive(Debug, Subcommand)]

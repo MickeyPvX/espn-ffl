@@ -215,14 +215,14 @@ mod types_tests {
 
     #[test]
     fn test_player_points_serialization() {
-        let player_points = PlayerPoints {
-            id: PlayerId::new(456789),
-            name: "Patrick Mahomes".to_string(),
-            position: "QB".to_string(),
-            week: Week::new(8),
-            projected: true,
-            points: 28.75,
-        };
+        let player_points = PlayerPoints::test_minimal(
+            PlayerId::new(456789),
+            "Patrick Mahomes".to_string(),
+            "QB".to_string(),
+            Week::new(8),
+            true,
+            28.75,
+        );
 
         let json = serde_json::to_value(&player_points).unwrap();
         assert_eq!(json["id"], 456789);

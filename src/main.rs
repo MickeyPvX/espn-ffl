@@ -46,6 +46,8 @@ async fn main() -> Result<()> {
                     refresh_positions,
                     clear_db,
                     refresh,
+                    injury_status: filters.injury_status,
+                    roster_status: filters.roster_status,
                 })
                 .await?
             }
@@ -67,6 +69,8 @@ async fn main() -> Result<()> {
                     json,
                     refresh,
                     bias_factor,
+                    filters.injury_status,
+                    filters.roster_status,
                 )
                 .await?
             }

@@ -35,8 +35,10 @@ impl PlayerDatabase {
             // Force update existing record
             let rows_affected = self.conn.execute(
                 "INSERT OR REPLACE INTO player_weekly_stats
-                 (player_id, season, week, projected_points, actual_points, created_at, updated_at)
-                 VALUES (?, ?, ?, ?, ?,
+                 (player_id, season, week, projected_points, actual_points,
+                  active, injured, injury_status, is_rostered, fantasy_team_id, fantasy_team_name,
+                  created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                          COALESCE((SELECT created_at FROM player_weekly_stats
                                   WHERE player_id = ? AND season = ? AND week = ?), ?), ?)",
                 params![
@@ -45,6 +47,12 @@ impl PlayerDatabase {
                     stats.week.as_u16(),
                     stats.projected_points,
                     stats.actual_points,
+                    stats.active,
+                    stats.injured,
+                    stats.injury_status.as_ref().map(|s| s.to_string()),
+                    stats.is_rostered,
+                    stats.fantasy_team_id,
+                    stats.fantasy_team_name,
                     stats.player_id.as_u64(),
                     stats.season.as_u16(),
                     stats.week.as_u16(),
@@ -57,14 +65,22 @@ impl PlayerDatabase {
             // Only insert if doesn't exist
             let rows_affected = self.conn.execute(
                 "INSERT OR IGNORE INTO player_weekly_stats
-                 (player_id, season, week, projected_points, actual_points, created_at, updated_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?)",
+                 (player_id, season, week, projected_points, actual_points,
+                  active, injured, injury_status, is_rostered, fantasy_team_id, fantasy_team_name,
+                  created_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 params![
                     stats.player_id.as_u64(),
                     stats.season.as_u16(),
                     stats.week.as_u16(),
                     stats.projected_points,
                     stats.actual_points,
+                    stats.active,
+                    stats.injured,
+                    stats.injury_status.as_ref().map(|s| s.to_string()),
+                    stats.is_rostered,
+                    stats.fantasy_team_id,
+                    stats.fantasy_team_name,
                     now,
                     now
                 ],
@@ -81,7 +97,9 @@ impl PlayerDatabase {
         week: Week,
     ) -> Result<Option<PlayerWeeklyStats>> {
         let mut stmt = self.conn.prepare(
-            "SELECT player_id, season, week, projected_points, actual_points, created_at, updated_at
+            "SELECT player_id, season, week, projected_points, actual_points,
+                    active, injured, injury_status, is_rostered, fantasy_team_id, fantasy_team_name,
+                    created_at, updated_at
              FROM player_weekly_stats
              WHERE player_id = ? AND season = ? AND week = ?",
         )?;
@@ -105,7 +123,9 @@ impl PlayerDatabase {
         season: Season,
     ) -> Result<Vec<PlayerWeeklyStats>> {
         let mut stmt = self.conn.prepare(
-            "SELECT player_id, season, week, projected_points, actual_points, created_at, updated_at
+            "SELECT player_id, season, week, projected_points, actual_points,
+                    active, injured, injury_status, is_rostered, fantasy_team_id, fantasy_team_name,
+                    created_at, updated_at
              FROM player_weekly_stats
              WHERE player_id = ? AND season = ?
              ORDER BY week",
@@ -315,14 +335,36 @@ impl PlayerDatabase {
 
     /// Helper to convert database row to PlayerWeeklyStats
     pub(crate) fn row_to_weekly_stats(&self, row: &Row) -> rusqlite::Result<PlayerWeeklyStats> {
+        use crate::espn::types::InjuryStatus;
+
+        let injury_status_str: Option<String> = row.get(7)?;
+        let injury_status = injury_status_str
+            .map(|s| match s.as_str() {
+                "Active" => Some(InjuryStatus::Active),
+                "IR" => Some(InjuryStatus::InjuryReserve),
+                "Out" => Some(InjuryStatus::Out),
+                "Doubtful" => Some(InjuryStatus::Doubtful),
+                "Questionable" => Some(InjuryStatus::Questionable),
+                "Probable" => Some(InjuryStatus::Probable),
+                "Day-to-Day" => Some(InjuryStatus::DayToDay),
+                _ => Some(InjuryStatus::Unknown),
+            })
+            .unwrap_or(None);
+
         Ok(PlayerWeeklyStats {
             player_id: PlayerId::new(row.get(0)?),
             season: Season::new(row.get(1)?),
             week: Week::new(row.get(2)?),
             projected_points: row.get(3)?,
             actual_points: row.get(4)?,
-            created_at: row.get(5)?,
-            updated_at: row.get(6)?,
+            active: row.get(5)?,
+            injured: row.get(6)?,
+            injury_status,
+            is_rostered: row.get(8)?,
+            fantasy_team_id: row.get(9)?,
+            fantasy_team_name: row.get(10)?,
+            created_at: row.get(11)?,
+            updated_at: row.get(12)?,
         })
     }
 }

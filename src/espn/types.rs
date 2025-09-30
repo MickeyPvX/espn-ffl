@@ -49,6 +49,42 @@ pub struct LeagueEnvelope {
     pub settings: LeagueSettings,
 }
 
+/// Player injury status
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+pub enum InjuryStatus {
+    #[serde(rename = "ACTIVE")]
+    Active,
+    #[serde(rename = "INJURY_RESERVE")]
+    InjuryReserve,
+    #[serde(rename = "OUT")]
+    Out,
+    #[serde(rename = "DOUBTFUL")]
+    Doubtful,
+    #[serde(rename = "QUESTIONABLE")]
+    Questionable,
+    #[serde(rename = "PROBABLE")]
+    Probable,
+    #[serde(rename = "DAY_TO_DAY")]
+    DayToDay,
+    #[serde(other)]
+    Unknown,
+}
+
+impl std::fmt::Display for InjuryStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            InjuryStatus::Active => write!(f, "Active"),
+            InjuryStatus::InjuryReserve => write!(f, "IR"),
+            InjuryStatus::Out => write!(f, "Out"),
+            InjuryStatus::Doubtful => write!(f, "Doubtful"),
+            InjuryStatus::Questionable => write!(f, "Questionable"),
+            InjuryStatus::Probable => write!(f, "Probable"),
+            InjuryStatus::DayToDay => write!(f, "Day-to-Day"),
+            InjuryStatus::Unknown => write!(f, "Unknown"),
+        }
+    }
+}
+
 /// Player data from ESPN API
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Player {
@@ -59,6 +95,12 @@ pub struct Player {
     pub default_position_id: i8,
     #[serde(default)]
     pub stats: Vec<PlayerStats>,
+    #[serde(default)]
+    pub active: Option<bool>,
+    #[serde(default)]
+    pub injured: Option<bool>,
+    #[serde(rename = "injuryStatus", default)]
+    pub injury_status: Option<InjuryStatus>,
 }
 
 /// Player statistics for a specific period
@@ -85,4 +127,160 @@ pub struct PlayerPoints {
     pub week: Week,
     pub projected: bool,
     pub points: f64,
+    pub active: Option<bool>,
+    pub injured: Option<bool>,
+    pub injury_status: Option<InjuryStatus>,
+    pub is_rostered: Option<bool>,
+    pub team_id: Option<u32>,
+    pub team_name: Option<String>,
+}
+
+impl PlayerPoints {
+    /// Create a minimal PlayerPoints for testing
+    #[cfg(test)]
+    pub fn test_minimal(
+        id: PlayerId,
+        name: String,
+        position: String,
+        week: Week,
+        projected: bool,
+        points: f64,
+    ) -> Self {
+        Self {
+            id,
+            name,
+            position,
+            week,
+            projected,
+            points,
+            active: Some(true),
+            injured: Some(false),
+            injury_status: None,
+            is_rostered: Some(false),
+            team_id: None,
+            team_name: None,
+        }
+    }
+    /// Create PlayerPoints from cached data (no injury/roster info)
+    pub fn from_cached_data(
+        player_id: PlayerId,
+        name: String,
+        position: String,
+        points: f64,
+        week: Week,
+        projected: bool,
+    ) -> Self {
+        Self {
+            id: player_id,
+            name,
+            position,
+            points,
+            week,
+            projected,
+            active: None,
+            injured: None,
+            injury_status: None,
+            is_rostered: None,
+            team_id: None,
+            team_name: None,
+        }
+    }
+
+    /// Create PlayerPoints from ESPN player data
+    pub fn from_espn_player(
+        player_id: PlayerId,
+        player: &Player,
+        position: String,
+        points: f64,
+        week: Week,
+        projected: bool,
+    ) -> Self {
+        Self {
+            id: player_id,
+            name: player
+                .full_name
+                .clone()
+                .unwrap_or_else(|| format!("Player {}", player.id)),
+            position,
+            points,
+            week,
+            projected,
+            active: player.active,
+            injured: player.injured,
+            injury_status: player.injury_status.clone(),
+            is_rostered: None, // Will be filled later
+            team_id: None,     // Will be filled later
+            team_name: None,   // Will be filled later
+        }
+    }
+}
+
+/// Roster entry from ESPN API
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RosterEntry {
+    #[serde(rename = "playerId")]
+    pub player_id: i64,
+    #[serde(rename = "lineupSlotId")]
+    pub lineup_slot_id: u8,
+    #[serde(rename = "injuryStatus")]
+    pub injury_status: Option<String>,
+}
+
+/// Team roster from ESPN API
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct TeamRoster {
+    pub entries: Vec<RosterEntry>,
+}
+
+/// Team data from ESPN API
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct Team {
+    pub id: u32,
+    pub name: Option<String>,
+    pub abbrev: Option<String>,
+    pub roster: Option<TeamRoster>,
+}
+
+/// League data with teams from ESPN API
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct LeagueData {
+    pub teams: Vec<Team>,
+}
+
+impl LeagueData {
+    /// Create a mapping of player ID to team information
+    pub fn create_player_roster_map(
+        &self,
+    ) -> std::collections::HashMap<i64, (u32, Option<String>, Option<String>)> {
+        let mut player_to_team = std::collections::HashMap::new();
+
+        for team in &self.teams {
+            if let Some(roster) = &team.roster {
+                for entry in &roster.entries {
+                    player_to_team.insert(
+                        entry.player_id,
+                        (team.id, team.name.clone(), team.abbrev.clone()),
+                    );
+                }
+            }
+        }
+
+        player_to_team
+    }
+
+    /// Update a list of PlayerPoints with roster information
+    pub fn update_player_points_with_roster(&self, player_points: &mut [PlayerPoints]) {
+        let player_to_team = self.create_player_roster_map();
+
+        for player in player_points.iter_mut() {
+            let player_id_i64 = player.id.as_u64() as i64;
+            if let Some((team_id, team_name, _team_abbrev)) = player_to_team.get(&player_id_i64) {
+                player.is_rostered = Some(true);
+                player.team_id = Some(*team_id);
+                player.team_name = team_name.clone();
+            } else {
+                player.is_rostered = Some(false);
+            }
+        }
+    }
 }

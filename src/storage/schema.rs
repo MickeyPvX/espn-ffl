@@ -56,6 +56,12 @@ impl PlayerDatabase {
                 week INTEGER,
                 projected_points REAL,
                 actual_points REAL,
+                active INTEGER,
+                injured INTEGER,
+                injury_status TEXT,
+                is_rostered INTEGER,
+                fantasy_team_id INTEGER,
+                fantasy_team_name TEXT,
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER NOT NULL,
                 PRIMARY KEY (player_id, season, week),
@@ -63,6 +69,32 @@ impl PlayerDatabase {
             )",
             [],
         )?;
+
+        // Add new columns if they don't exist (for database migration)
+        let _ = self.conn.execute(
+            "ALTER TABLE player_weekly_stats ADD COLUMN active INTEGER",
+            [],
+        );
+        let _ = self.conn.execute(
+            "ALTER TABLE player_weekly_stats ADD COLUMN injured INTEGER",
+            [],
+        );
+        let _ = self.conn.execute(
+            "ALTER TABLE player_weekly_stats ADD COLUMN injury_status TEXT",
+            [],
+        );
+        let _ = self.conn.execute(
+            "ALTER TABLE player_weekly_stats ADD COLUMN is_rostered INTEGER",
+            [],
+        );
+        let _ = self.conn.execute(
+            "ALTER TABLE player_weekly_stats ADD COLUMN fantasy_team_id INTEGER",
+            [],
+        );
+        let _ = self.conn.execute(
+            "ALTER TABLE player_weekly_stats ADD COLUMN fantasy_team_name TEXT",
+            [],
+        );
 
         // Create indexes for performance
         self.conn.execute(

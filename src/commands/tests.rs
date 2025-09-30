@@ -124,6 +124,8 @@ async fn test_handle_player_data_structure() {
         refresh_positions: false,
         clear_db: false,
         refresh: false,
+        injury_status: None,
+        roster_status: None,
     })
     .await;
 
@@ -146,6 +148,12 @@ fn test_player_points_serialization() {
         week: Week::new(1),
         projected: false,
         points: 25.5,
+        active: Some(true),
+        injured: Some(false),
+        injury_status: None,
+        is_rostered: Some(true),
+        team_id: Some(1),
+        team_name: Some("Test Team".to_string()),
     };
 
     let json = serde_json::to_string(&player_points).unwrap();
@@ -165,6 +173,12 @@ fn test_player_points_ordering() {
             week: Week::new(1),
             projected: false,
             points: 15.0,
+            active: Some(true),
+            injured: Some(false),
+            injury_status: None,
+            is_rostered: Some(true),
+            team_id: Some(1),
+            team_name: Some("Team A".to_string()),
         },
         PlayerPoints {
             id: PlayerId::new(2),
@@ -173,6 +187,12 @@ fn test_player_points_ordering() {
             week: Week::new(1),
             projected: false,
             points: 25.0,
+            active: Some(true),
+            injured: Some(false),
+            injury_status: None,
+            is_rostered: Some(true),
+            team_id: Some(2),
+            team_name: Some("Team B".to_string()),
         },
         PlayerPoints {
             id: PlayerId::new(3),
@@ -181,6 +201,12 @@ fn test_player_points_ordering() {
             week: Week::new(1),
             projected: false,
             points: 20.0,
+            active: Some(true),
+            injured: Some(false),
+            injury_status: None,
+            is_rostered: Some(false),
+            team_id: None,
+            team_name: None,
         },
     ];
 
@@ -230,6 +256,8 @@ async fn test_handle_player_data_missing_id() {
         refresh_positions: false,
         clear_db: false,
         refresh: false,
+        injury_status: None,
+        roster_status: None,
     })
     .await;
     assert!(result.is_err());
@@ -254,6 +282,8 @@ fn test_player_data_params_creation() {
         refresh_positions: false,
         clear_db: false,
         refresh: false,
+        injury_status: None,
+        roster_status: None,
     };
 
     assert!(params.debug);
@@ -329,6 +359,12 @@ fn test_player_weekly_stats_creation() {
         week: Week::new(1),
         projected_points: Some(20.0),
         actual_points: Some(18.5),
+        active: Some(true),
+        injured: Some(false),
+        injury_status: None,
+        is_rostered: Some(true),
+        fantasy_team_id: Some(1),
+        fantasy_team_name: Some("Test Team".to_string()),
         created_at: 1234567890,
         updated_at: 1234567890,
     };
@@ -380,6 +416,8 @@ async fn test_handle_projection_analysis_structure() {
         false,
         false,
         1.0,
+        None, // injury_status
+        None, // roster_status
     )
     .await;
 
