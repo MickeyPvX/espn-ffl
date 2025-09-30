@@ -81,9 +81,7 @@ async fn main() -> Result<()> {
                 season,
                 through_week,
                 verbose,
-            } => {
-                handle_update_all_data(season, through_week, league_id, verbose).await?
-            }
+            } => handle_update_all_data(season, through_week, league_id, verbose).await?,
         },
     }
 

@@ -151,7 +151,8 @@ pub async fn handle_projection_analysis(
             season,
             week,
             false, // not verbose
-        ).await?;
+        )
+        .await?;
 
         // Build status map for filtering
         for player in temp_player_points {

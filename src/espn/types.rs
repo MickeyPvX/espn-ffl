@@ -197,16 +197,19 @@ impl PlayerPoints {
     }
 
     /// Create PlayerPoints from PerformanceEstimate for status checking
-    pub fn from_estimate(estimate: &crate::storage::models::PerformanceEstimate, week: crate::cli::types::Week) -> Self {
+    pub fn from_estimate(
+        estimate: &crate::storage::models::PerformanceEstimate,
+        week: crate::cli::types::Week,
+    ) -> Self {
         Self {
             id: estimate.player_id,
             name: estimate.name.clone(),
             position: estimate.position.clone(),
             points: estimate.estimated_points,
             week,
-            projected: false, // Status checking is not projection-specific
-            active: None,     // Will be filled by update_player_points_with_roster_info
-            injured: None,    // Will be filled by update_player_points_with_roster_info
+            projected: false,    // Status checking is not projection-specific
+            active: None,        // Will be filled by update_player_points_with_roster_info
+            injured: None,       // Will be filled by update_player_points_with_roster_info
             injury_status: None, // Will be filled by update_player_points_with_roster_info
             is_rostered: None,   // Will be filled by update_player_points_with_roster_info
             team_id: None,       // Will be filled by update_player_points_with_roster_info
@@ -306,7 +309,8 @@ impl LeagueData {
 
             // Check both positive and negative versions of the ID
             // D/ST teams often have negative IDs in roster data but positive IDs in player data
-            let roster_info = player_to_team.get(&player_id_i64)
+            let roster_info = player_to_team
+                .get(&player_id_i64)
                 .or_else(|| player_to_team.get(&negative_player_id_i64));
 
             if let Some((team_id, team_name, _team_abbrev)) = roster_info {

@@ -8,7 +8,10 @@ use crate::{
     Result,
 };
 
-use super::{player_data::{handle_player_data, PlayerDataParams}, resolve_league_id};
+use super::{
+    player_data::{handle_player_data, PlayerDataParams},
+    resolve_league_id,
+};
 
 /// Update all player data (actual and projected) for weeks 1 through the specified week
 ///
@@ -29,7 +32,11 @@ pub async fn handle_update_all_data(
     let league_id = resolve_league_id(league_id)?;
 
     if verbose {
-        println!("Updating all player data for Season {} through Week {}", season.as_u16(), through_week.as_u16());
+        println!(
+            "Updating all player data for Season {} through Week {}",
+            season.as_u16(),
+            through_week.as_u16()
+        );
         println!("League ID: {}", league_id.as_u32());
     }
 
@@ -98,7 +105,10 @@ pub async fn handle_update_all_data(
     println!("Total weeks processed: {}", total_weeks_processed);
 
     if verbose {
-        println!("\nDatabase now contains complete actual and projected data for weeks 1-{}", through_week.as_u16());
+        println!(
+            "\nDatabase now contains complete actual and projected data for weeks 1-{}",
+            through_week.as_u16()
+        );
         println!("This data can be used for projection analysis and bias correction.");
     }
 

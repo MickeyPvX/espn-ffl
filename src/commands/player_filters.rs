@@ -84,10 +84,7 @@ pub fn filter_and_convert_players(
 ///
 /// This function provides consistent injury status filtering logic across commands.
 /// For `Active` and `Injured` filters, it uses server-side filtering hints when available.
-pub fn matches_injury_filter(
-    player: &PlayerPoints,
-    filter: &InjuryStatusFilter,
-) -> bool {
+pub fn matches_injury_filter(player: &PlayerPoints, filter: &InjuryStatusFilter) -> bool {
     match filter {
         InjuryStatusFilter::Active => {
             // For Active filter, prefer injury_status if available, otherwise check injured field
@@ -123,10 +120,7 @@ pub fn matches_injury_filter(
 /// Check if a player matches the given roster status filter
 ///
 /// This function provides consistent roster status filtering logic across commands.
-pub fn matches_roster_filter(
-    player: &PlayerPoints,
-    filter: &RosterStatusFilter,
-) -> bool {
+pub fn matches_roster_filter(player: &PlayerPoints, filter: &RosterStatusFilter) -> bool {
     match filter {
         RosterStatusFilter::Rostered => player.is_rostered.unwrap_or(false),
         RosterStatusFilter::FA => !player.is_rostered.unwrap_or(true),
@@ -144,10 +138,7 @@ pub fn matches_roster_filter(
 /// let mut players = vec![/* PlayerPoints objects */];
 /// apply_injury_filter(&mut players, &InjuryStatusFilter::Active);
 /// ```
-pub fn apply_injury_filter(
-    players: &mut Vec<PlayerPoints>,
-    filter: &InjuryStatusFilter,
-) {
+pub fn apply_injury_filter(players: &mut Vec<PlayerPoints>, filter: &InjuryStatusFilter) {
     players.retain(|player| matches_injury_filter(player, filter));
 }
 
@@ -162,10 +153,7 @@ pub fn apply_injury_filter(
 /// let mut players = vec![/* PlayerPoints objects */];
 /// apply_roster_filter(&mut players, &RosterStatusFilter::FA);
 /// ```
-pub fn apply_roster_filter(
-    players: &mut Vec<PlayerPoints>,
-    filter: &RosterStatusFilter,
-) {
+pub fn apply_roster_filter(players: &mut Vec<PlayerPoints>, filter: &RosterStatusFilter) {
     players.retain(|player| matches_roster_filter(player, filter));
 }
 
@@ -215,29 +203,65 @@ mod tests {
 
     #[test]
     fn test_matches_injury_filter_active() {
-        let active_player = create_test_player("Active Player", Some(false), Some(InjuryStatus::Active), None);
-        let injured_player = create_test_player("Injured Player", Some(true), Some(InjuryStatus::Out), None);
+        let active_player = create_test_player(
+            "Active Player",
+            Some(false),
+            Some(InjuryStatus::Active),
+            None,
+        );
+        let injured_player =
+            create_test_player("Injured Player", Some(true), Some(InjuryStatus::Out), None);
 
-        assert!(matches_injury_filter(&active_player, &InjuryStatusFilter::Active));
-        assert!(!matches_injury_filter(&injured_player, &InjuryStatusFilter::Active));
+        assert!(matches_injury_filter(
+            &active_player,
+            &InjuryStatusFilter::Active
+        ));
+        assert!(!matches_injury_filter(
+            &injured_player,
+            &InjuryStatusFilter::Active
+        ));
     }
 
     #[test]
     fn test_matches_injury_filter_injured() {
-        let active_player = create_test_player("Active Player", Some(false), Some(InjuryStatus::Active), None);
-        let injured_player = create_test_player("Injured Player", Some(true), Some(InjuryStatus::Out), None);
+        let active_player = create_test_player(
+            "Active Player",
+            Some(false),
+            Some(InjuryStatus::Active),
+            None,
+        );
+        let injured_player =
+            create_test_player("Injured Player", Some(true), Some(InjuryStatus::Out), None);
 
-        assert!(!matches_injury_filter(&active_player, &InjuryStatusFilter::Injured));
-        assert!(matches_injury_filter(&injured_player, &InjuryStatusFilter::Injured));
+        assert!(!matches_injury_filter(
+            &active_player,
+            &InjuryStatusFilter::Injured
+        ));
+        assert!(matches_injury_filter(
+            &injured_player,
+            &InjuryStatusFilter::Injured
+        ));
     }
 
     #[test]
     fn test_matches_injury_filter_specific_status() {
-        let questionable_player = create_test_player("Questionable Player", Some(true), Some(InjuryStatus::Questionable), None);
-        let out_player = create_test_player("Out Player", Some(true), Some(InjuryStatus::Out), None);
+        let questionable_player = create_test_player(
+            "Questionable Player",
+            Some(true),
+            Some(InjuryStatus::Questionable),
+            None,
+        );
+        let out_player =
+            create_test_player("Out Player", Some(true), Some(InjuryStatus::Out), None);
 
-        assert!(matches_injury_filter(&questionable_player, &InjuryStatusFilter::Questionable));
-        assert!(!matches_injury_filter(&questionable_player, &InjuryStatusFilter::Out));
+        assert!(matches_injury_filter(
+            &questionable_player,
+            &InjuryStatusFilter::Questionable
+        ));
+        assert!(!matches_injury_filter(
+            &questionable_player,
+            &InjuryStatusFilter::Out
+        ));
         assert!(matches_injury_filter(&out_player, &InjuryStatusFilter::Out));
     }
 
@@ -246,23 +270,56 @@ mod tests {
         let rostered_player = create_test_player("Rostered Player", None, None, Some(true));
         let fa_player = create_test_player("FA Player", None, None, Some(false));
 
-        assert!(matches_roster_filter(&rostered_player, &RosterStatusFilter::Rostered));
-        assert!(!matches_roster_filter(&rostered_player, &RosterStatusFilter::FA));
-        assert!(!matches_roster_filter(&fa_player, &RosterStatusFilter::Rostered));
+        assert!(matches_roster_filter(
+            &rostered_player,
+            &RosterStatusFilter::Rostered
+        ));
+        assert!(!matches_roster_filter(
+            &rostered_player,
+            &RosterStatusFilter::FA
+        ));
+        assert!(!matches_roster_filter(
+            &fa_player,
+            &RosterStatusFilter::Rostered
+        ));
         assert!(matches_roster_filter(&fa_player, &RosterStatusFilter::FA));
     }
 
     #[test]
     fn test_apply_status_filters() {
         let mut players = vec![
-            create_test_player("Active Rostered", Some(false), Some(InjuryStatus::Active), Some(true)),
-            create_test_player("Active FA", Some(false), Some(InjuryStatus::Active), Some(false)),
-            create_test_player("Injured Rostered", Some(true), Some(InjuryStatus::Out), Some(true)),
-            create_test_player("Injured FA", Some(true), Some(InjuryStatus::Out), Some(false)),
+            create_test_player(
+                "Active Rostered",
+                Some(false),
+                Some(InjuryStatus::Active),
+                Some(true),
+            ),
+            create_test_player(
+                "Active FA",
+                Some(false),
+                Some(InjuryStatus::Active),
+                Some(false),
+            ),
+            create_test_player(
+                "Injured Rostered",
+                Some(true),
+                Some(InjuryStatus::Out),
+                Some(true),
+            ),
+            create_test_player(
+                "Injured FA",
+                Some(true),
+                Some(InjuryStatus::Out),
+                Some(false),
+            ),
         ];
 
         // Filter for active free agents
-        apply_status_filters(&mut players, Some(&InjuryStatusFilter::Active), Some(&RosterStatusFilter::FA));
+        apply_status_filters(
+            &mut players,
+            Some(&InjuryStatusFilter::Active),
+            Some(&RosterStatusFilter::FA),
+        );
 
         assert_eq!(players.len(), 1);
         assert_eq!(players[0].name, "Active FA");
