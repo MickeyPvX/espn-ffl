@@ -5,6 +5,23 @@ use std::collections::BTreeMap;
 #[cfg(test)]
 mod tests;
 
+/// Parameters for creating PlayerPoints from cached data to avoid too many function arguments.
+#[derive(Debug)]
+pub struct CachedPlayerData {
+    pub player_id: PlayerId,
+    pub name: String,
+    pub position: String,
+    pub points: f64,
+    pub week: Week,
+    pub projected: bool,
+    pub active: Option<bool>,
+    pub injured: Option<bool>,
+    pub injury_status: Option<InjuryStatus>,
+    pub is_rostered: Option<bool>,
+    pub team_id: Option<u32>,
+    pub team_name: Option<String>,
+}
+
 fn de_str_key_map_u8_f64<'de, D>(deserializer: D) -> Result<BTreeMap<u8, f64>, D::Error>
 where
     D: Deserializer<'de>,
@@ -161,28 +178,21 @@ impl PlayerPoints {
             team_name: None,
         }
     }
-    /// Create PlayerPoints from cached data (no injury/roster info)
-    pub fn from_cached_data(
-        player_id: PlayerId,
-        name: String,
-        position: String,
-        points: f64,
-        week: Week,
-        projected: bool,
-    ) -> Self {
+    /// Create PlayerPoints from cached data with injury/roster info
+    pub fn from_cached_data(params: CachedPlayerData) -> Self {
         Self {
-            id: player_id,
-            name,
-            position,
-            points,
-            week,
-            projected,
-            active: None,
-            injured: None,
-            injury_status: None,
-            is_rostered: None,
-            team_id: None,
-            team_name: None,
+            id: params.player_id,
+            name: params.name,
+            position: params.position,
+            points: params.points,
+            week: params.week,
+            projected: params.projected,
+            active: params.active,
+            injured: params.injured,
+            injury_status: params.injury_status,
+            is_rostered: params.is_rostered,
+            team_id: params.team_id,
+            team_name: params.team_name,
         }
     }
 

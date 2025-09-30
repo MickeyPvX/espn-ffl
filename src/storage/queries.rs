@@ -6,6 +6,20 @@ use anyhow::Result;
 use rusqlite::{params, Row};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+/// Type alias for the complex return type of cached player data queries
+type CachedPlayerDataRow = (
+    PlayerId,
+    String,
+    String,
+    f64,
+    Option<bool>,
+    Option<bool>,
+    Option<crate::espn::types::InjuryStatus>,
+    Option<bool>,
+    Option<u32>,
+    Option<String>,
+);
+
 impl PlayerDatabase {
     /// Insert or update a player's basic information
     pub fn upsert_player(&mut self, player: &Player) -> Result<()> {
@@ -187,17 +201,22 @@ impl PlayerDatabase {
         player_names: Option<&Vec<String>>,
         positions: Option<&Vec<Position>>,
         projected: bool,
-    ) -> Result<Vec<(PlayerId, String, String, f64)>> {
+    ) -> Result<Vec<CachedPlayerDataRow>> {
         let mut query = String::from(
             "SELECT p.player_id, p.name, p.position,
-                    COALESCE(pws.projected_points, pws.actual_points) as points
+                    CASE WHEN ? = 1 THEN pws.projected_points ELSE pws.actual_points END as points,
+                    pws.active, pws.injured, pws.injury_status,
+                    pws.is_rostered, pws.fantasy_team_id, pws.fantasy_team_name
              FROM players p
              JOIN player_weekly_stats pws ON p.player_id = pws.player_id
              WHERE pws.season = ? AND pws.week = ?",
         );
 
-        let mut params: Vec<Box<dyn rusqlite::ToSql>> =
-            vec![Box::new(season.as_u16()), Box::new(week.as_u16())];
+        let mut params: Vec<Box<dyn rusqlite::ToSql>> = vec![
+            Box::new(if projected { 1 } else { 0 }),
+            Box::new(season.as_u16()),
+            Box::new(week.as_u16()),
+        ];
 
         // Add projected/actual filter
         if projected {
@@ -242,11 +261,31 @@ impl PlayerDatabase {
         let rows = stmt.query_map(
             rusqlite::params_from_iter(params.iter().map(|p| p.as_ref())),
             |row| {
+                let injury_status_str: Option<String> = row.get(6)?;
+                let injury_status = injury_status_str
+                    .map(|s| match s.as_str() {
+                        "Active" => Some(crate::espn::types::InjuryStatus::Active),
+                        "IR" => Some(crate::espn::types::InjuryStatus::InjuryReserve),
+                        "Out" => Some(crate::espn::types::InjuryStatus::Out),
+                        "Doubtful" => Some(crate::espn::types::InjuryStatus::Doubtful),
+                        "Questionable" => Some(crate::espn::types::InjuryStatus::Questionable),
+                        "Probable" => Some(crate::espn::types::InjuryStatus::Probable),
+                        "Day-to-Day" => Some(crate::espn::types::InjuryStatus::DayToDay),
+                        _ => Some(crate::espn::types::InjuryStatus::Unknown),
+                    })
+                    .unwrap_or(None);
+
                 Ok((
-                    PlayerId::new(row.get(0)?),
-                    row.get(1)?,
-                    row.get(2)?,
-                    row.get(3)?,
+                    PlayerId::new(row.get(0)?), // player_id
+                    row.get(1)?,                // name
+                    row.get(2)?,                // position
+                    row.get(3)?,                // points
+                    row.get(4)?,                // active
+                    row.get(5)?,                // injured
+                    injury_status,              // injury_status
+                    row.get(7)?,                // is_rostered
+                    row.get(8)?,                // fantasy_team_id
+                    row.get(9)?,                // fantasy_team_name
                 ))
             },
         )?;

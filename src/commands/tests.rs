@@ -427,3 +427,119 @@ async fn test_handle_projection_analysis_structure() {
         Err(_) => {} // Database errors are also OK for this test
     }
 }
+
+#[test]
+fn test_cached_data_includes_injury_and_roster_status() {
+    use crate::espn::types::{CachedPlayerData, InjuryStatus, PlayerPoints};
+
+    // This is a unit test to ensure cached PlayerPoints include status fields
+    // This would catch the bug where cached data returned None for all status fields
+
+    let player_points = PlayerPoints::from_cached_data(CachedPlayerData {
+        player_id: PlayerId::new(999),
+        name: "Test Player".to_string(),
+        position: "RB".to_string(),
+        points: 15.5,
+        week: Week::new(1),
+        projected: false,
+        active: Some(false), // not active
+        injured: Some(true), // injured
+        injury_status: Some(InjuryStatus::Questionable),
+        is_rostered: Some(true), // rostered
+        team_id: Some(123),      // team_id
+        team_name: Some("My Team".to_string()),
+    });
+
+    // These assertions would fail if cached data constructor ignores status fields
+    assert_eq!(
+        player_points.active,
+        Some(false),
+        "Cached data should preserve active status"
+    );
+    assert_eq!(
+        player_points.injured,
+        Some(true),
+        "Cached data should preserve injured status"
+    );
+    assert_eq!(
+        player_points.injury_status,
+        Some(InjuryStatus::Questionable),
+        "Cached data should preserve injury status"
+    );
+    assert_eq!(
+        player_points.is_rostered,
+        Some(true),
+        "Cached data should preserve roster status"
+    );
+    assert_eq!(
+        player_points.team_id,
+        Some(123),
+        "Cached data should preserve team ID"
+    );
+    assert_eq!(
+        player_points.team_name,
+        Some("My Team".to_string()),
+        "Cached data should preserve team name"
+    );
+}
+
+#[test]
+fn test_cached_vs_fresh_data_status_consistency() {
+    // This test would catch issues where cached and fresh data return different status info
+    // Note: This is more of a conceptual test since we can't easily mock ESPN API calls
+
+    use crate::espn::types::{CachedPlayerData, InjuryStatus, PlayerPoints};
+
+    // Simulate what fresh data might look like
+    let fresh_data = PlayerPoints::from_espn_player(
+        PlayerId::new(12345),
+        &crate::espn::types::Player {
+            id: 12345,
+            full_name: Some("Josh Allen".to_string()),
+            default_position_id: 0, // QB
+            stats: vec![],          // Empty stats vec
+            active: Some(true),
+            injured: Some(false),
+            injury_status: Some(InjuryStatus::Active),
+        },
+        "QB".to_string(),
+        25.0,
+        Week::new(1),
+        false,
+    );
+
+    // Simulate corresponding cached data (this should match fresh data)
+    let cached_data = PlayerPoints::from_cached_data(CachedPlayerData {
+        player_id: PlayerId::new(12345),
+        name: "Josh Allen".to_string(),
+        position: "QB".to_string(),
+        points: 25.0,
+        week: Week::new(1),
+        projected: false,
+        active: Some(true),                        // active - should match fresh
+        injured: Some(false),                      // injured - should match fresh
+        injury_status: Some(InjuryStatus::Active), // injury_status - should match fresh
+        is_rostered: Some(true),                   // rostered (example)
+        team_id: Some(42),                         // team_id (example)
+        team_name: Some("Test Team".to_string()),  // team_name (example)
+    });
+
+    // Status fields should match between fresh and cached data
+    assert_eq!(
+        fresh_data.active, cached_data.active,
+        "Active status should match between fresh and cached data"
+    );
+    assert_eq!(
+        fresh_data.injured, cached_data.injured,
+        "Injured status should match between fresh and cached data"
+    );
+    assert_eq!(
+        fresh_data.injury_status, cached_data.injury_status,
+        "Injury status should match between fresh and cached data"
+    );
+
+    // Basic fields should also match
+    assert_eq!(fresh_data.id, cached_data.id);
+    assert_eq!(fresh_data.points, cached_data.points);
+    assert_eq!(fresh_data.projected, cached_data.projected);
+}

@@ -30,7 +30,7 @@ use crate::{
 };
 
 use super::{player_filters::filter_and_convert_players, resolve_league_id};
-use crate::espn::types::InjuryStatus;
+use crate::espn::types::{CachedPlayerData, InjuryStatus};
 
 /// Configuration parameters for player data retrieval.
 ///
@@ -175,16 +175,34 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
             params.projected,
         )?;
 
-        // Convert cached data to PlayerPoints format
-        for (player_id, name, position, points) in cached_data {
-            player_points.push(PlayerPoints::from_cached_data(
+        // Convert cached data to PlayerPoints format with status info
+        for (
+            player_id,
+            name,
+            position,
+            points,
+            active,
+            injured,
+            injury_status,
+            is_rostered,
+            team_id,
+            team_name,
+        ) in cached_data
+        {
+            player_points.push(PlayerPoints::from_cached_data(CachedPlayerData {
                 player_id,
                 name,
                 position,
                 points,
-                params.week,
-                params.projected,
-            ));
+                week: params.week,
+                projected: params.projected,
+                active,
+                injured,
+                injury_status,
+                is_rostered,
+                team_id,
+                team_name,
+            }));
         }
     } else {
         println!(
@@ -362,28 +380,28 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
         for player in player_points {
             // tarpaulin::skip - console output
             let status_str = match (&player.injury_status, player.injured) {
-                (Some(status), _) => format!(" [{}]", status),
-                (None, Some(true)) => " [Injured]".to_string(),
-                (None, Some(false)) => "".to_string(),
-                (None, None) => "".to_string(),
+                (Some(status), _) => format!("[{}]", status),
+                (None, Some(true)) => "[Injured]".to_string(),
+                (None, Some(false)) => "[Active]".to_string(),
+                (None, None) => "[Active]".to_string(),
             };
 
             let roster_str = match (player.is_rostered, &player.team_name) {
                 (Some(true), Some(team_name)) => format!(" ({})", team_name),
-                (Some(true), None) => " (Rostered)".to_string(),
-                (Some(false), _) => " (FA)".to_string(),
+                (Some(true), None) => "(Rostered)".to_string(),
+                (Some(false), _) => "(FA)".to_string(),
                 (None, _) => "".to_string(),
             };
 
             println!(
-                "{} {} ({}) [week {}] {:.2}{}{}",
+                "{} {} ({}) [week {}] {} {} {:.2}",
                 player.id.as_u64(),
                 player.name,
                 player.position,
                 player.week.as_u16(),
-                player.points,
                 status_str,
                 roster_str,
+                player.points,
             );
         }
     }
