@@ -196,6 +196,24 @@ impl PlayerPoints {
         }
     }
 
+    /// Create PlayerPoints from PerformanceEstimate for status checking
+    pub fn from_estimate(estimate: &crate::storage::models::PerformanceEstimate, week: crate::cli::types::Week) -> Self {
+        Self {
+            id: estimate.player_id,
+            name: estimate.name.clone(),
+            position: estimate.position.clone(),
+            points: estimate.estimated_points,
+            week,
+            projected: false, // Status checking is not projection-specific
+            active: None,     // Will be filled by update_player_points_with_roster_info
+            injured: None,    // Will be filled by update_player_points_with_roster_info
+            injury_status: None, // Will be filled by update_player_points_with_roster_info
+            is_rostered: None,   // Will be filled by update_player_points_with_roster_info
+            team_id: None,       // Will be filled by update_player_points_with_roster_info
+            team_name: None,     // Will be filled by update_player_points_with_roster_info
+        }
+    }
+
     /// Create PlayerPoints from ESPN player data
     pub fn from_espn_player(
         player_id: PlayerId,

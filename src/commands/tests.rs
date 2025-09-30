@@ -543,3 +543,128 @@ fn test_cached_vs_fresh_data_status_consistency() {
     assert_eq!(fresh_data.points, cached_data.points);
     assert_eq!(fresh_data.projected, cached_data.projected);
 }
+
+#[cfg(test)]
+mod projection_analysis_filtering_tests {
+    use super::*;
+    use crate::{
+        cli::types::{InjuryStatusFilter, RosterStatusFilter},
+        commands::player_filters::{matches_injury_filter, matches_roster_filter},
+        espn::types::{InjuryStatus, PlayerPoints},
+    };
+
+    fn create_test_player_points(
+        name: &str,
+        injured: Option<bool>,
+        injury_status: Option<InjuryStatus>,
+        is_rostered: Option<bool>,
+    ) -> PlayerPoints {
+        PlayerPoints {
+            id: PlayerId::new(123),
+            name: name.to_string(),
+            position: "QB".to_string(),
+            points: 15.0,
+            week: Week::new(1),
+            projected: false,
+            active: Some(!injured.unwrap_or(false)),
+            injured,
+            injury_status,
+            is_rostered,
+            team_id: None,
+            team_name: None,
+        }
+    }
+
+    #[test]
+    fn test_projection_analysis_roster_status_filtering_works() {
+        // This test ensures that roster status filtering works correctly for projection analysis
+        // and would catch the bug where filtering returned no results for future weeks
+
+        let rostered_player = create_test_player_points("Rostered QB", None, None, Some(true));
+        let fa_player = create_test_player_points("FA QB", None, None, Some(false));
+        let unknown_player = create_test_player_points("Unknown QB", None, None, None);
+
+        // Test rostered filter
+        assert!(matches_roster_filter(&rostered_player, &RosterStatusFilter::Rostered));
+        assert!(!matches_roster_filter(&fa_player, &RosterStatusFilter::Rostered));
+        assert!(!matches_roster_filter(&unknown_player, &RosterStatusFilter::Rostered));
+
+        // Test free agent filter
+        assert!(!matches_roster_filter(&rostered_player, &RosterStatusFilter::FA));
+        assert!(matches_roster_filter(&fa_player, &RosterStatusFilter::FA));
+        assert!(!matches_roster_filter(&unknown_player, &RosterStatusFilter::FA)); // None defaults to NOT FA
+    }
+
+    #[test]
+    fn test_projection_analysis_injury_status_filtering_works() {
+        // This test ensures that injury status filtering works correctly for projection analysis
+
+        let active_player = create_test_player_points("Active QB", Some(false), Some(InjuryStatus::Active), None);
+        let injured_player = create_test_player_points("Injured QB", Some(true), Some(InjuryStatus::Out), None);
+        let questionable_player = create_test_player_points("Questionable QB", Some(true), Some(InjuryStatus::Questionable), None);
+
+        // Test active filter
+        assert!(matches_injury_filter(&active_player, &InjuryStatusFilter::Active));
+        assert!(!matches_injury_filter(&injured_player, &InjuryStatusFilter::Active));
+        assert!(!matches_injury_filter(&questionable_player, &InjuryStatusFilter::Active));
+
+        // Test injured filter
+        assert!(!matches_injury_filter(&active_player, &InjuryStatusFilter::Injured));
+        assert!(matches_injury_filter(&injured_player, &InjuryStatusFilter::Injured));
+        assert!(matches_injury_filter(&questionable_player, &InjuryStatusFilter::Injured));
+
+        // Test specific status filters
+        assert!(matches_injury_filter(&injured_player, &InjuryStatusFilter::Out));
+        assert!(!matches_injury_filter(&questionable_player, &InjuryStatusFilter::Out));
+        assert!(matches_injury_filter(&questionable_player, &InjuryStatusFilter::Questionable));
+        assert!(!matches_injury_filter(&injured_player, &InjuryStatusFilter::Questionable));
+    }
+
+    #[test]
+    fn test_projection_analysis_combined_filtering() {
+        // This test ensures that both injury and roster status filters work together
+        // This would catch bugs where one filter interferes with another
+
+        let active_rostered = create_test_player_points("Active Rostered", Some(false), Some(InjuryStatus::Active), Some(true));
+        let active_fa = create_test_player_points("Active FA", Some(false), Some(InjuryStatus::Active), Some(false));
+        let injured_rostered = create_test_player_points("Injured Rostered", Some(true), Some(InjuryStatus::Out), Some(true));
+        let injured_fa = create_test_player_points("Injured FA", Some(true), Some(InjuryStatus::Out), Some(false));
+
+        // Test combined filters: active + FA
+        assert!(!matches_injury_filter(&active_rostered, &InjuryStatusFilter::Active) || !matches_roster_filter(&active_rostered, &RosterStatusFilter::FA));
+        assert!(matches_injury_filter(&active_fa, &InjuryStatusFilter::Active) && matches_roster_filter(&active_fa, &RosterStatusFilter::FA));
+        assert!(!matches_injury_filter(&injured_rostered, &InjuryStatusFilter::Active) || !matches_roster_filter(&injured_rostered, &RosterStatusFilter::FA));
+        assert!(!matches_injury_filter(&injured_fa, &InjuryStatusFilter::Active) || !matches_roster_filter(&injured_fa, &RosterStatusFilter::FA));
+
+        // Test combined filters: injured + rostered
+        assert!(!matches_injury_filter(&active_rostered, &InjuryStatusFilter::Injured) || !matches_roster_filter(&active_rostered, &RosterStatusFilter::Rostered));
+        assert!(!matches_injury_filter(&active_fa, &InjuryStatusFilter::Injured) || !matches_roster_filter(&active_fa, &RosterStatusFilter::Rostered));
+        assert!(matches_injury_filter(&injured_rostered, &InjuryStatusFilter::Injured) && matches_roster_filter(&injured_rostered, &RosterStatusFilter::Rostered));
+        assert!(!matches_injury_filter(&injured_fa, &InjuryStatusFilter::Injured) || !matches_roster_filter(&injured_fa, &RosterStatusFilter::Rostered));
+    }
+
+    #[test]
+    fn test_filtering_with_missing_status_data() {
+        // This test catches the specific bug we fixed where players without current status data
+        // were incorrectly filtered out when they should have been included or excluded based on defaults
+
+        let player_no_injury_data = create_test_player_points("No Injury Data", None, None, Some(true));
+        let player_no_roster_data = create_test_player_points("No Roster Data", Some(false), Some(InjuryStatus::Active), None);
+        let player_no_data = create_test_player_points("No Data", None, None, None);
+
+        // Players with missing injury data should be treated as not injured for "Active" filter
+        // This test would catch the bug where we required cached data to exist
+        assert!(matches_injury_filter(&player_no_injury_data, &InjuryStatusFilter::Active));
+        assert!(!matches_injury_filter(&player_no_injury_data, &InjuryStatusFilter::Injured));
+
+        // Players with missing roster data should NOT be treated as free agents (conservative default)
+        assert!(!matches_roster_filter(&player_no_roster_data, &RosterStatusFilter::Rostered));
+        assert!(!matches_roster_filter(&player_no_roster_data, &RosterStatusFilter::FA));
+
+        // Players with no data should have sensible defaults
+        assert!(matches_injury_filter(&player_no_data, &InjuryStatusFilter::Active));
+        assert!(!matches_injury_filter(&player_no_data, &InjuryStatusFilter::Injured));
+        assert!(!matches_roster_filter(&player_no_data, &RosterStatusFilter::Rostered));
+        assert!(!matches_roster_filter(&player_no_data, &RosterStatusFilter::FA));
+    }
+}

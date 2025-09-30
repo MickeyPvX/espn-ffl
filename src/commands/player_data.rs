@@ -29,8 +29,11 @@ use crate::{
     Result,
 };
 
-use super::{player_filters::filter_and_convert_players, resolve_league_id};
-use crate::espn::types::{CachedPlayerData, InjuryStatus};
+use super::{
+    player_filters::{apply_status_filters, filter_and_convert_players},
+    resolve_league_id,
+};
+use crate::espn::types::CachedPlayerData;
 
 /// Configuration parameters for player data retrieval.
 ///
@@ -364,7 +367,11 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
 
     // Apply client-side filtering for specific injury statuses and roster status
     if params.injury_status.is_some() || params.roster_status.is_some() {
-        player_points = apply_client_side_filters(player_points, &params);
+        apply_status_filters(
+            &mut player_points,
+            params.injury_status.as_ref(),
+            params.roster_status.as_ref(),
+        );
     }
 
     // Sort descending by points
@@ -409,54 +416,3 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
     Ok(())
 }
 
-/// Apply client-side filters for injury and roster status
-fn apply_client_side_filters(
-    mut player_points: Vec<PlayerPoints>,
-    params: &PlayerDataParams,
-) -> Vec<PlayerPoints> {
-    // Apply injury status filter
-    if let Some(injury_filter) = &params.injury_status {
-        player_points.retain(|player| {
-            match injury_filter {
-                InjuryStatusFilter::Active => {
-                    // For client-side filtering, we check if the player is active
-                    matches!(player.injury_status, Some(InjuryStatus::Active)) ||
-                    (player.injury_status.is_none() && player.injured != Some(true))
-                }
-                InjuryStatusFilter::Injured => {
-                    // Already filtered server-side, but double-check
-                    player.injured == Some(true) ||
-                    matches!(&player.injury_status, Some(status) if *status != InjuryStatus::Active)
-                }
-                InjuryStatusFilter::Out => {
-                    matches!(player.injury_status, Some(InjuryStatus::Out))
-                }
-                InjuryStatusFilter::Doubtful => {
-                    matches!(player.injury_status, Some(InjuryStatus::Doubtful))
-                }
-                InjuryStatusFilter::Questionable => {
-                    matches!(player.injury_status, Some(InjuryStatus::Questionable))
-                }
-                InjuryStatusFilter::Probable => {
-                    matches!(player.injury_status, Some(InjuryStatus::Probable))
-                }
-                InjuryStatusFilter::DayToDay => {
-                    matches!(player.injury_status, Some(InjuryStatus::DayToDay))
-                }
-                InjuryStatusFilter::IR => {
-                    matches!(player.injury_status, Some(InjuryStatus::InjuryReserve))
-                }
-            }
-        });
-    }
-
-    // Apply roster status filter (always client-side since ESPN doesn't support it)
-    if let Some(roster_filter) = &params.roster_status {
-        player_points.retain(|player| match roster_filter {
-            RosterStatusFilter::Rostered => player.is_rostered == Some(true),
-            RosterStatusFilter::FA => player.is_rostered == Some(false),
-        });
-    }
-
-    player_points
-}
