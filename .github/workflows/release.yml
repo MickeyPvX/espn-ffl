@@ -5,6 +5,9 @@ on:
     tags:
       - 'v*' # Triggers on tags like v1.0.0, v1.1.0, etc.
 
+permissions:
+  contents: write
+
 env:
   CARGO_TERM_COLOR: always
 
