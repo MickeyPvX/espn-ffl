@@ -3,7 +3,7 @@
 pub mod types;
 
 use clap::{Args, Parser, Subcommand};
-use types::{LeagueId, Position, Season, Week};
+use types::{InjuryStatusFilter, LeagueId, Position, RosterStatusFilter, Season, Week};
 
 /// Common filtering arguments shared between commands
 #[derive(Debug, Args)]
@@ -27,6 +27,14 @@ pub struct CommonFilters {
     /// Single week.
     #[clap(long, short, default_value_t = Week::default())]
     pub week: Week,
+
+    /// Filter by injury status.
+    #[clap(long)]
+    pub injury_status: Option<InjuryStatusFilter>,
+
+    /// Filter by roster status.
+    #[clap(long)]
+    pub roster_status: Option<RosterStatusFilter>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -101,6 +109,29 @@ pub enum GetCmd {
         /// Bias adjustment strength (0.0 = no adjustment, 1.0 = full bias correction, >1.0 = amplified correction)
         #[clap(long)]
         bias_strength: Option<f64>,
+    },
+
+    /// Update all player data (actual and projected) for multiple weeks.
+    ///
+    /// Efficiently populates the database with complete historical data needed
+    /// for accurate projection analysis by fetching both actual and projected
+    /// points for all players from week 1 through the specified week.
+    UpdateAllData {
+        /// League ID (or set `ESPN_FFL_LEAGUE_ID` env var).
+        #[clap(long, short)]
+        league_id: Option<LeagueId>,
+
+        /// Season year (e.g. 2025).
+        #[clap(long, short, default_value_t = Season::default())]
+        season: Season,
+
+        /// Update data through this week (inclusive) - e.g., 4 means weeks 1,2,3,4.
+        #[clap(long)]
+        through_week: Week,
+
+        /// Show detailed progress information.
+        #[clap(long)]
+        verbose: bool,
     },
 }
 

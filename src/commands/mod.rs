@@ -4,6 +4,7 @@ pub mod league_data;
 pub mod player_data;
 pub mod player_filters;
 pub mod projection_analysis;
+pub mod update_all_data;
 
 use crate::{cli::types::LeagueId, error::EspnError, Result, LEAGUE_ID_ENV_VAR};
 

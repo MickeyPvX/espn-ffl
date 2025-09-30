@@ -1,17 +1,21 @@
 //! Projection analysis command implementation
 
 use crate::{
-    cli::types::{LeagueId, Position, Season, Week},
+    cli::types::{InjuryStatusFilter, LeagueId, Position, RosterStatusFilter, Season, Week},
     espn::{
         cache_settings::load_or_fetch_league_settings,
         compute::{build_scoring_index, compute_points_for_week, select_weekly_stats},
-        http::get_player_data,
+        http::{get_player_data, update_player_points_with_roster_info, PlayerDataRequest},
+        types::PlayerPoints,
     },
     storage::PlayerDatabase,
     Result,
 };
 
-use super::{player_filters::filter_and_convert_players, resolve_league_id};
+use super::{
+    player_filters::{filter_and_convert_players, matches_injury_filter, matches_roster_filter},
+    resolve_league_id,
+};
 
 /// Handle the projection analysis command (simplified version)
 #[allow(clippy::too_many_arguments)]
@@ -24,6 +28,8 @@ pub async fn handle_projection_analysis(
     as_json: bool,
     refresh: bool,
     bias_strength: f64,
+    injury_status: Option<InjuryStatusFilter>,
+    roster_status: Option<RosterStatusFilter>,
 ) -> Result<()> {
     let league_id = resolve_league_id(league_id)?;
     if !as_json {
@@ -51,15 +57,16 @@ pub async fn handle_projection_analysis(
                 week.as_u16()
             );
         }
-        get_player_data(
-            false, // debug = false
+        get_player_data(PlayerDataRequest {
+            debug: false,
             league_id,
-            None, // Don't pass limit to ESPN API
-            player_names.clone(),
-            positions.clone(),
+            player_names: player_names.clone(),
+            positions: positions.clone(),
             season,
             week,
-        )
+            injury_status_filter: injury_status.clone(),
+            roster_status_filter: roster_status.clone(),
+        })
         .await?
     };
 
@@ -102,9 +109,8 @@ pub async fn handle_projection_analysis(
             let espn_projection =
                 compute_points_for_week(weekly_stats, position_id, &scoring_index);
 
-            if espn_projection > 0.0 {
-                projected_points_data.push((player_id, espn_projection));
-            }
+            // Include all projections regardless of value (negative points are valid for D/ST)
+            projected_points_data.push((player_id, espn_projection));
         }
     }
 
@@ -124,19 +130,73 @@ pub async fn handle_projection_analysis(
         return Ok(());
     }
 
-    // Apply position filter and sort by estimated points (descending)
+    // Get current injury/roster status for filtering if needed
+    let mut current_status_map = std::collections::HashMap::new();
+
+    if injury_status.is_some() || roster_status.is_some() {
+        if !as_json {
+            println!("Getting current injury/roster status for filtering...");
+        }
+
+        // Create PlayerPoints objects for all estimates to get current status
+        let mut temp_player_points: Vec<PlayerPoints> = estimates
+            .iter()
+            .map(|estimate| PlayerPoints::from_estimate(estimate, week))
+            .collect();
+
+        // Get current injury/roster status from ESPN API
+        update_player_points_with_roster_info(
+            &mut temp_player_points,
+            league_id,
+            season,
+            week,
+            false, // not verbose
+        )
+        .await?;
+
+        // Build status map for filtering
+        for player in temp_player_points {
+            current_status_map.insert(player.name.clone(), player);
+        }
+    }
+
+    // Apply filters (position, injury status, roster status) and sort by estimated points (descending)
     let filtered_estimates: Vec<_> = estimates
         .into_iter()
         .filter(|estimate| {
+            // Apply position filter
             if let Some(pos_filters) = &positions {
-                pos_filters.iter().any(|p| {
+                let position_matches = pos_filters.iter().any(|p| {
                     p.get_eligible_positions()
                         .iter()
                         .any(|eligible_pos| estimate.position == eligible_pos.to_string())
-                })
-            } else {
-                true
+                });
+                if !position_matches {
+                    return false;
+                }
             }
+
+            // Apply injury/roster status filters using current status
+            if let Some(player_status) = current_status_map.get(&estimate.name) {
+                // Apply injury status filter if specified
+                if let Some(injury_filter) = &injury_status {
+                    if !matches_injury_filter(player_status, injury_filter) {
+                        return false;
+                    }
+                }
+
+                // Apply roster status filter if specified
+                if let Some(roster_filter) = &roster_status {
+                    if !matches_roster_filter(player_status, roster_filter) {
+                        return false;
+                    }
+                }
+            } else if injury_status.is_some() || roster_status.is_some() {
+                // Filters specified but no status info available - exclude this player
+                return false;
+            }
+
+            true
         })
         .collect();
 
@@ -160,11 +220,11 @@ pub async fn handle_projection_analysis(
 
         // Print column headers
         println!(
-            "{:<20} {:<8} {:<8} {:<8} {:<8} {:<8}",
+            "{:<20} {:<8} {:<8} {:<8} {:<8} {:<8} Reasoning",
             "Name", "Pos", "ESPN", "Adj", "Final", "Conf%"
         );
         println!(
-            "{:<20} {:<8} {:<8} {:<8} {:<8} {:<8}",
+            "{:<20} {:<8} {:<8} {:<8} {:<8} {:<8} ---------",
             "----", "---", "----", "---", "-----", "----"
         );
 
@@ -178,13 +238,14 @@ pub async fn handle_projection_analysis(
             };
 
             println!(
-                "{:<20} {:<8} {:<8.1} {:<8} {:<8.1} {:<8}%",
+                "{:<20} {:<8} {:<8.1} {:<8} {:<8.1} {:<8}% {}",
                 estimate.name.chars().take(20).collect::<String>(),
                 estimate.position,
                 estimate.espn_projection,
                 adj_str,
                 estimate.estimated_points,
-                (estimate.confidence * 100.0) as u8
+                (estimate.confidence * 100.0) as u8,
+                estimate.reasoning
             );
         }
     }

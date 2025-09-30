@@ -215,14 +215,14 @@ mod types_tests {
 
     #[test]
     fn test_player_points_serialization() {
-        let player_points = PlayerPoints {
-            id: PlayerId::new(456789),
-            name: "Patrick Mahomes".to_string(),
-            position: "QB".to_string(),
-            week: Week::new(8),
-            projected: true,
-            points: 28.75,
-        };
+        let player_points = PlayerPoints::test_minimal(
+            PlayerId::new(456789),
+            "Patrick Mahomes".to_string(),
+            "QB".to_string(),
+            Week::new(8),
+            true,
+            28.75,
+        );
 
         let json = serde_json::to_value(&player_points).unwrap();
         assert_eq!(json["id"], 456789);
@@ -230,6 +230,68 @@ mod types_tests {
         assert_eq!(json["week"], 8);
         assert_eq!(json["projected"], true);
         assert_eq!(json["points"], 28.75);
+    }
+
+    #[test]
+    fn test_player_points_from_cached_data_with_status() {
+        use crate::cli::types::{PlayerId, Week};
+
+        let player_points = PlayerPoints::from_cached_data(CachedPlayerData {
+            player_id: PlayerId::new(12345),
+            name: "Josh Allen".to_string(),
+            position: "QB".to_string(),
+            points: 29.5,
+            week: Week::new(1),
+            projected: false,     // not projected
+            active: Some(true),   // active
+            injured: Some(false), // not injured
+            injury_status: Some(InjuryStatus::Active),
+            is_rostered: Some(true),                  // rostered
+            team_id: Some(42),                        // team_id
+            team_name: Some("Test Team".to_string()), // team_name
+        });
+
+        // Verify all fields are set correctly
+        assert_eq!(player_points.id, PlayerId::new(12345));
+        assert_eq!(player_points.name, "Josh Allen");
+        assert_eq!(player_points.position, "QB");
+        assert_eq!(player_points.points, 29.5);
+        assert_eq!(player_points.week, Week::new(1));
+        assert_eq!(player_points.projected, false);
+        assert_eq!(player_points.active, Some(true));
+        assert_eq!(player_points.injured, Some(false));
+        assert_eq!(player_points.injury_status, Some(InjuryStatus::Active));
+        assert_eq!(player_points.is_rostered, Some(true));
+        assert_eq!(player_points.team_id, Some(42));
+        assert_eq!(player_points.team_name, Some("Test Team".to_string()));
+    }
+
+    #[test]
+    fn test_player_points_from_cached_data_with_injured_status() {
+        use crate::cli::types::{PlayerId, Week};
+
+        // Test with injured player and no roster info
+        let player_points = PlayerPoints::from_cached_data(CachedPlayerData {
+            player_id: PlayerId::new(67890),
+            name: "Injured Player".to_string(),
+            position: "RB".to_string(),
+            points: 0.0, // no points due to injury
+            week: Week::new(2),
+            projected: false,
+            active: Some(false), // not active
+            injured: Some(true), // injured
+            injury_status: Some(InjuryStatus::Out),
+            is_rostered: Some(false), // not rostered (free agent)
+            team_id: None,            // no team_id
+            team_name: None,          // no team_name
+        });
+
+        assert_eq!(player_points.active, Some(false));
+        assert_eq!(player_points.injured, Some(true));
+        assert_eq!(player_points.injury_status, Some(InjuryStatus::Out));
+        assert_eq!(player_points.is_rostered, Some(false));
+        assert_eq!(player_points.team_id, None);
+        assert_eq!(player_points.team_name, None);
     }
 
     #[test]

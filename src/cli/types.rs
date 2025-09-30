@@ -6,15 +6,30 @@ use std::convert::TryFrom;
 use std::fmt;
 use std::str::FromStr;
 
-/// Type-safe wrapper for League IDs
+/// Type-safe wrapper for ESPN Fantasy Football League IDs.
+///
+/// Ensures league IDs are handled consistently throughout the application
+/// and provides type safety to prevent mixing up league IDs with other numeric values.
+///
+/// # Examples
+///
+/// ```rust
+/// use espn_ffl::LeagueId;
+///
+/// let league_id = LeagueId::new(123456);
+/// assert_eq!(league_id.as_u32(), 123456);
+/// assert_eq!(league_id.to_string(), "123456");
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct LeagueId(pub u32);
 
 impl LeagueId {
+    /// Create a new LeagueId from a u32 value.
     pub fn new(id: u32) -> Self {
         Self(id)
     }
 
+    /// Get the underlying u32 value.
     pub fn as_u32(&self) -> u32 {
         self.0
     }
@@ -92,6 +107,76 @@ impl FromStr for Season {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Week(pub u16);
 
+/// Filter for player injury status in CLI commands.
+///
+/// Allows filtering players by their current injury designation.
+/// Some filters work server-side with ESPN API for efficiency, while others
+/// require client-side filtering.
+///
+/// # Server-side vs Client-side Filtering
+///
+/// - **Server-side** (efficient): `Active`, `Injured`
+/// - **Client-side** (less efficient): Specific statuses like `Out`, `Doubtful`, etc.
+///
+/// # Examples
+///
+/// ```rust
+/// use espn_ffl::cli::types::InjuryStatusFilter;
+///
+/// let filter = InjuryStatusFilter::Active;
+/// assert_eq!(filter.to_string(), "Active");
+/// ```
+#[derive(Debug, Clone, clap::ValueEnum)]
+pub enum InjuryStatusFilter {
+    /// Players who are active/healthy
+    Active,
+    /// Any player with an injury designation
+    Injured,
+    /// Players ruled out for the game
+    Out,
+    /// Players with doubtful injury status
+    Doubtful,
+    /// Players with questionable injury status
+    Questionable,
+    /// Players with probable injury status
+    Probable,
+    /// Players listed as day-to-day
+    DayToDay,
+    /// Players on Injury Reserve
+    IR,
+}
+
+impl fmt::Display for InjuryStatusFilter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            InjuryStatusFilter::Active => write!(f, "Active"),
+            InjuryStatusFilter::Injured => write!(f, "Injured"),
+            InjuryStatusFilter::Out => write!(f, "Out"),
+            InjuryStatusFilter::Doubtful => write!(f, "Doubtful"),
+            InjuryStatusFilter::Questionable => write!(f, "Questionable"),
+            InjuryStatusFilter::Probable => write!(f, "Probable"),
+            InjuryStatusFilter::DayToDay => write!(f, "Day-to-Day"),
+            InjuryStatusFilter::IR => write!(f, "IR"),
+        }
+    }
+}
+
+/// Roster status filter for CLI
+#[derive(Debug, Clone, clap::ValueEnum)]
+pub enum RosterStatusFilter {
+    Rostered, // On any team in the league
+    FA,       // Free agent (not on any team)
+}
+
+impl fmt::Display for RosterStatusFilter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            RosterStatusFilter::Rostered => write!(f, "Rostered"),
+            RosterStatusFilter::FA => write!(f, "Free Agent"),
+        }
+    }
+}
+
 impl Week {
     pub fn new(week: u16) -> Self {
         Self(week)
@@ -122,19 +207,48 @@ impl FromStr for Week {
     }
 }
 
-/// Enum for player positions
+/// Fantasy football player positions.
+///
+/// Represents the different positions available in ESPN Fantasy Football,
+/// including individual positions and flexible roster slots.
+///
+/// # Examples
+///
+/// ```rust
+/// use espn_ffl::Position;
+///
+/// let qb = Position::QB;
+/// let flex = Position::FLEX;
+///
+/// // Get ESPN position ID
+/// assert_eq!(qb.to_u8(), 0);
+///
+/// // Check position eligibility
+/// assert!(Position::FLEX.get_eligible_positions().contains(&Position::RB));
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Position {
+    /// Quarterback
     QB,
+    /// Running Back
     RB,
+    /// Wide Receiver
     WR,
+    /// Tight End
     TE,
+    /// Kicker
     K,
+    /// Defense/Special Teams
     DEF,
+    /// Flexible position (RB/WR/TE)
     FLEX,
 }
 
 impl Position {
+    /// Convert position to ESPN's internal position ID.
+    ///
+    /// ESPN uses numeric IDs to represent different positions in their API.
+    /// This method returns the primary position ID for each position type.
     pub fn to_u8(&self) -> u8 {
         match self {
             Position::QB => 0,
