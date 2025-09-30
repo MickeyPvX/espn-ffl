@@ -302,7 +302,14 @@ impl LeagueData {
 
         for player in player_points.iter_mut() {
             let player_id_i64 = player.id.as_u64() as i64;
-            if let Some((team_id, team_name, _team_abbrev)) = player_to_team.get(&player_id_i64) {
+            let negative_player_id_i64 = -(player_id_i64);
+
+            // Check both positive and negative versions of the ID
+            // D/ST teams often have negative IDs in roster data but positive IDs in player data
+            let roster_info = player_to_team.get(&player_id_i64)
+                .or_else(|| player_to_team.get(&negative_player_id_i64));
+
+            if let Some((team_id, team_name, _team_abbrev)) = roster_info {
                 player.is_rostered = Some(true);
                 player.team_id = Some(*team_id);
                 player.team_name = team_name.clone();
