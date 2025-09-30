@@ -109,9 +109,8 @@ pub async fn handle_projection_analysis(
             let espn_projection =
                 compute_points_for_week(weekly_stats, position_id, &scoring_index);
 
-            if espn_projection > 0.0 {
-                projected_points_data.push((player_id, espn_projection));
-            }
+            // Include all projections regardless of value (negative points are valid for D/ST)
+            projected_points_data.push((player_id, espn_projection));
         }
     }
 

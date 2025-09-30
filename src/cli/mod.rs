@@ -110,6 +110,29 @@ pub enum GetCmd {
         #[clap(long)]
         bias_strength: Option<f64>,
     },
+
+    /// Update all player data (actual and projected) for multiple weeks.
+    ///
+    /// Efficiently populates the database with complete historical data needed
+    /// for accurate projection analysis by fetching both actual and projected
+    /// points for all players from week 1 through the specified week.
+    UpdateAllData {
+        /// League ID (or set `ESPN_FFL_LEAGUE_ID` env var).
+        #[clap(long, short)]
+        league_id: Option<LeagueId>,
+
+        /// Season year (e.g. 2025).
+        #[clap(long, short, default_value_t = Season::default())]
+        season: Season,
+
+        /// Update data through this week (inclusive) - e.g., 4 means weeks 1,2,3,4.
+        #[clap(long)]
+        through_week: Week,
+
+        /// Show detailed progress information.
+        #[clap(long)]
+        verbose: bool,
+    },
 }
 
 #[derive(Debug, Parser)]

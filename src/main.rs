@@ -7,6 +7,7 @@ use espn_ffl::{
         league_data::handle_league_data,
         player_data::{handle_player_data, PlayerDataParams},
         projection_analysis::handle_projection_analysis,
+        update_all_data::handle_update_all_data,
     },
     Result,
 };
@@ -73,6 +74,15 @@ async fn main() -> Result<()> {
                     filters.roster_status,
                 )
                 .await?
+            }
+
+            GetCmd::UpdateAllData {
+                league_id,
+                season,
+                through_week,
+                verbose,
+            } => {
+                handle_update_all_data(season, through_week, league_id, verbose).await?
             }
         },
     }

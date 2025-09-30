@@ -306,16 +306,15 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
                 };
                 let _ = db.merge_weekly_stats(&weekly_db_stats);
 
-                if points > 0f64 {
-                    player_points.push(PlayerPoints::from_espn_player(
-                        player_id,
-                        &player,
-                        position.clone(),
-                        points,
-                        params.week,
-                        params.projected,
-                    ));
-                }
+                // Include all players regardless of points (negative points are valid for D/ST)
+                player_points.push(PlayerPoints::from_espn_player(
+                    player_id,
+                    &player,
+                    position.clone(),
+                    points,
+                    params.week,
+                    params.projected,
+                ));
             }
         }
     }
