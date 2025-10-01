@@ -113,7 +113,7 @@ espn-ffl get player-data -p RB --injury-status active --roster-status rostered -
 espn-ffl get player-data --league-id 123456 --week 1
 
 # Or set as environment variable
-export ESPN_LEAGUE_ID=123456
+export ESPN_FFL_LEAGUE_ID=123456
 espn-ffl get player-data --week 1
 ```
 
@@ -139,10 +139,13 @@ espn-ffl get projection-analysis -n "Josh Allen" -n "Travis Kelce" --week 4
 ```
 
 ```text
-Name                 Pos      ESPN     Adj      Final    Conf%
-----                 ---      ----     ---      -----    ----
-Josh Allen           QB       22.7     +1.9     24.5     19      %
-Travis Kelce         TE       11.3     -1.7     9.6      29      %
+Projection Analysis & Predictions for Week 5
+Season: 2025
+
+Name                 Pos      ESPN     Adj      Final    Conf%    Reasoning
+----                 ---      ----     ---      -----    ----     ---------
+Josh Allen           QB       22.3     +4.5     26.7     32      % Recent trend shows ESPN underestimates by 5.1 pts (32% confidence), adjusted up 4.5 pts
+Travis Kelce         TE       9.2      -1.3     7.9      41      % Recent trend shows ESPN overestimates by 1.5 pts (41% confidence), adjusted down 1.3 pts
 ```
 
 **JSON output** for scripting/analysis:
@@ -310,7 +313,7 @@ Cache league settings for faster subsequent queries.
 
 ## Troubleshooting
 
-**"Missing league ID" error**: Set `ESPN_LEAGUE_ID` environment variable or use `--league-id`
+**"Missing league ID" error**: Set `ESPN_FFL_LEAGUE_ID` environment variable or use `--league-id`
 
 **Authentication errors**: Double-check your `ESPN_SWID` and `ESPN_S2` cookies are current
 
