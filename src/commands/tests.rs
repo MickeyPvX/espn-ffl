@@ -126,6 +126,7 @@ async fn test_handle_player_data_structure() {
         refresh: false,
         injury_status: None,
         roster_status: None,
+        team_filter: None,
     })
     .await;
 
@@ -258,6 +259,7 @@ async fn test_handle_player_data_missing_id() {
         refresh: false,
         injury_status: None,
         roster_status: None,
+        team_filter: None,
     })
     .await;
     assert!(result.is_err());
@@ -284,6 +286,7 @@ fn test_player_data_params_creation() {
         refresh: false,
         injury_status: None,
         roster_status: None,
+        team_filter: None,
     };
 
     assert!(params.debug);
@@ -418,6 +421,7 @@ async fn test_handle_projection_analysis_structure() {
         1.0,
         None, // injury_status
         None, // roster_status
+        None, // team_filter
     )
     .await;
 

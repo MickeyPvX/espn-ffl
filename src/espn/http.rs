@@ -14,6 +14,9 @@ use crate::{
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+mod integration_tests;
+
 /// Base path for ESPN Fantasy Football v3 API.
 pub const FFL_BASE_URL: &str = "https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl";
 
@@ -49,8 +52,16 @@ fn get_common_headers() -> Result<HeaderMap> {
 }
 
 pub async fn get_league_settings(league_id: LeagueId, season: Season) -> Result<Value> {
+    get_league_settings_with_base_url(FFL_BASE_URL, league_id, season).await
+}
+
+pub(crate) async fn get_league_settings_with_base_url(
+    base_url: &str,
+    league_id: LeagueId,
+    season: Season,
+) -> Result<Value> {
     let url = format!(
-        "{FFL_BASE_URL}/seasons/{}/segments/0/leagues/{}",
+        "{base_url}/seasons/{}/segments/0/leagues/{}",
         season.as_u16(),
         league_id.as_u32()
     );
@@ -72,6 +83,13 @@ pub async fn get_league_settings(league_id: LeagueId, season: Season) -> Result<
 }
 
 pub async fn get_player_data(request: PlayerDataRequest) -> Result<Value> {
+    get_player_data_with_base_url(FFL_BASE_URL, request).await
+}
+
+pub(crate) async fn get_player_data_with_base_url(
+    base_url: &str,
+    request: PlayerDataRequest,
+) -> Result<Value> {
     // Build the filters from cli args
     let slots: Option<Vec<u8>> = request.positions.map(|ps| {
         ps.into_iter()
@@ -90,7 +108,7 @@ pub async fn get_player_data(request: PlayerDataRequest) -> Result<Value> {
     headers.insert("x-fantasy-filter", players_filter.to_header_value()?);
 
     // URL and query params
-    let url = format!("{FFL_BASE_URL}/seasons/{}/players", request.season.as_u16());
+    let url = format!("{base_url}/seasons/{}/players", request.season.as_u16());
     let params = [
         ("forLeagueId", request.league_id.to_string()),
         ("view", "kona_player_info".to_string()),
@@ -134,8 +152,18 @@ pub async fn get_league_rosters(
     season: Season,
     week: Option<Week>,
 ) -> Result<Value> {
+    get_league_rosters_with_base_url(FFL_BASE_URL, debug, league_id, season, week).await
+}
+
+pub(crate) async fn get_league_rosters_with_base_url(
+    base_url: &str,
+    debug: bool,
+    league_id: LeagueId,
+    season: Season,
+    week: Option<Week>,
+) -> Result<Value> {
     let url = format!(
-        "{FFL_BASE_URL}/seasons/{}/segments/0/leagues/{}",
+        "{base_url}/seasons/{}/segments/0/leagues/{}",
         season.as_u16(),
         league_id.as_u32()
     );
@@ -176,7 +204,17 @@ pub async fn get_player_info(
     season: Season,
     week: Week,
 ) -> Result<Value> {
-    let url = format!("{FFL_BASE_URL}/seasons/{}/players", season.as_u16());
+    get_player_info_with_base_url(FFL_BASE_URL, debug, league_id, season, week).await
+}
+
+pub(crate) async fn get_player_info_with_base_url(
+    base_url: &str,
+    debug: bool,
+    league_id: LeagueId,
+    season: Season,
+    week: Week,
+) -> Result<Value> {
+    let url = format!("{base_url}/seasons/{}/players", season.as_u16());
     let params = [
         ("forLeagueId", league_id.to_string()),
         ("view", "players_wl".to_string()), // "wl" often means "with lineup" or detailed info
@@ -211,7 +249,19 @@ pub async fn get_player_data_with_view(
     week: Week,
     view: &str,
 ) -> Result<Value> {
-    let url = format!("{FFL_BASE_URL}/seasons/{}/players", season.as_u16());
+    get_player_data_with_view_with_base_url(FFL_BASE_URL, debug, league_id, season, week, view)
+        .await
+}
+
+pub(crate) async fn get_player_data_with_view_with_base_url(
+    base_url: &str,
+    debug: bool,
+    league_id: LeagueId,
+    season: Season,
+    week: Week,
+    view: &str,
+) -> Result<Value> {
+    let url = format!("{base_url}/seasons/{}/players", season.as_u16());
     let params = [
         ("forLeagueId", league_id.to_string()),
         ("view", view.to_string()),
@@ -295,7 +345,26 @@ pub async fn get_player_data_with_custom_filter(
     week: Week,
     custom_filter_json: &str,
 ) -> Result<Value> {
-    let url = format!("{FFL_BASE_URL}/seasons/{}/players", season.as_u16());
+    get_player_data_with_custom_filter_with_base_url(
+        FFL_BASE_URL,
+        debug,
+        league_id,
+        season,
+        week,
+        custom_filter_json,
+    )
+    .await
+}
+
+pub(crate) async fn get_player_data_with_custom_filter_with_base_url(
+    base_url: &str,
+    debug: bool,
+    league_id: LeagueId,
+    season: Season,
+    week: Week,
+    custom_filter_json: &str,
+) -> Result<Value> {
+    let url = format!("{base_url}/seasons/{}/players", season.as_u16());
     let params = [
         ("forLeagueId", league_id.to_string()),
         ("view", "kona_player_info".to_string()),

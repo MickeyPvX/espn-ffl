@@ -185,4 +185,49 @@ mod espn_error_tests {
             _ => panic!("Expected NoData error"),
         }
     }
+
+    #[test]
+    fn test_anyhow_error_conversion() {
+        // Test From<anyhow::Error> implementation
+        let anyhow_error = anyhow::anyhow!("Test anyhow error message");
+        let espn_error = EspnError::from(anyhow_error);
+
+        match espn_error {
+            EspnError::Cache { message } => {
+                assert!(message.contains("Test anyhow error message"));
+            }
+            _ => panic!("Expected Cache error variant"),
+        }
+    }
+
+    #[test]
+    fn test_database_error_conversion() {
+        // Test From<rusqlite::Error> implementation
+        let db_error = rusqlite::Error::InvalidColumnType(
+            0,
+            "test_column".to_string(),
+            rusqlite::types::Type::Null,
+        );
+        let espn_error = EspnError::from(db_error);
+
+        match espn_error {
+            EspnError::Database(_) => (),
+            _ => panic!("Expected Database error variant"),
+        }
+    }
+
+    #[test]
+    fn test_system_time_error_conversion() {
+        use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+        // Create a SystemTimeError by trying to get a duration from a future time
+        let future_time = SystemTime::now() + Duration::from_secs(100);
+        let system_time_error = UNIX_EPOCH.duration_since(future_time).unwrap_err();
+        let espn_error = EspnError::from(system_time_error);
+
+        match espn_error {
+            EspnError::SystemTime(_) => (),
+            _ => panic!("Expected SystemTime error variant"),
+        }
+    }
 }

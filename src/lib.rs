@@ -34,6 +34,7 @@
 //! #   refresh: false,
 //! #   injury_status: None,
 //! #   roster_status: None,
+//! #   team_filter: None,
 //! };
 //!
 //! handle_player_data(params).await?;
