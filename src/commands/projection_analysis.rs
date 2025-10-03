@@ -675,13 +675,13 @@ mod integration_tests {
             PlayerDatabase,
         },
     };
+    use serde_json::json;
     use std::env;
     use tempfile::tempdir;
     use wiremock::{
         matchers::{method, path, query_param},
         Mock, MockServer, ResponseTemplate,
     };
-    use serde_json::json;
 
     async fn create_test_database() -> PlayerDatabase {
         let temp_dir = tempdir().expect("Failed to create temp directory");
@@ -747,8 +747,8 @@ mod integration_tests {
         roster_status: Option<RosterStatusFilter>,
     ) -> Result<()> {
         use crate::{
-            espn::http::{get_player_data_with_base_url, PlayerDataRequest},
             espn::cache_settings::load_or_fetch_league_settings,
+            espn::http::{get_player_data_with_base_url, PlayerDataRequest},
         };
 
         let league_id = resolve_league_id(league_id)?;

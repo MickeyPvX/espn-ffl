@@ -18,7 +18,9 @@
 //! struct containing all configuration options.
 
 use crate::{
-    cli::types::{InjuryStatusFilter, LeagueId, Position, RosterStatusFilter, Season, TeamFilter, Week},
+    cli::types::{
+        InjuryStatusFilter, LeagueId, Position, RosterStatusFilter, Season, TeamFilter, Week,
+    },
     espn::{
         cache_settings::load_or_fetch_league_settings,
         compute::{build_scoring_index, compute_points_for_week, select_weekly_stats},
@@ -366,7 +368,10 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
     }
 
     // Apply client-side filtering for specific injury statuses, roster status, and team
-    if params.injury_status.is_some() || params.roster_status.is_some() || params.team_filter.is_some() {
+    if params.injury_status.is_some()
+        || params.roster_status.is_some()
+        || params.team_filter.is_some()
+    {
         apply_status_filters(
             &mut player_points,
             params.injury_status.as_ref(),

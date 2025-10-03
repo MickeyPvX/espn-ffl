@@ -138,7 +138,9 @@ pub fn matches_team_filter(player: &PlayerPoints, filter: &TeamFilter) -> bool {
         TeamFilter::TeamName(search_term) => {
             if let Some(player_team_name) = &player.team_name {
                 // Flexible matching: check if search term appears anywhere in team name (case-insensitive)
-                player_team_name.to_lowercase().contains(&search_term.to_lowercase())
+                player_team_name
+                    .to_lowercase()
+                    .contains(&search_term.to_lowercase())
             } else {
                 false
             }
@@ -154,7 +156,9 @@ pub fn matches_team_filter(player: &PlayerPoints, filter: &TeamFilter) -> bool {
             if let Some(player_team_name) = &player.team_name {
                 let player_name_lower = player_team_name.to_lowercase();
                 // Match if ANY of the search terms appears in the team name
-                search_terms.iter().any(|term| player_name_lower.contains(&term.to_lowercase()))
+                search_terms
+                    .iter()
+                    .any(|term| player_name_lower.contains(&term.to_lowercase()))
             } else {
                 false
             }
@@ -792,14 +796,20 @@ mod tests {
         assert!(matches_team_filter(&player_with_team, &team_id_filter));
 
         let wrong_team_id_filter = TeamFilter::TeamId(456);
-        assert!(!matches_team_filter(&player_with_team, &wrong_team_id_filter));
+        assert!(!matches_team_filter(
+            &player_with_team,
+            &wrong_team_id_filter
+        ));
 
         // Test team name filter with partial matching
         let team_name_filter = TeamFilter::TeamName("kenny".to_string());
         assert!(matches_team_filter(&player_with_team, &team_name_filter));
 
         let team_name_filter_caps = TeamFilter::TeamName("ROGERS".to_string());
-        assert!(matches_team_filter(&player_with_team, &team_name_filter_caps));
+        assert!(matches_team_filter(
+            &player_with_team,
+            &team_name_filter_caps
+        ));
 
         let no_match_filter = TeamFilter::TeamName("nomatch".to_string());
         assert!(!matches_team_filter(&player_with_team, &no_match_filter));
