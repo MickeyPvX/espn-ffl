@@ -84,6 +84,18 @@ async fn main() -> Result<()> {
                     bias_factor,
                     filters.injury_status,
                     filters.roster_status,
+                    {
+                        // Convert CLI team options to TeamFilter for projection analysis
+                        match (filters.team, filters.team_id) {
+                            (Some(team_name), None) => Some(espn_ffl::cli::types::TeamFilter::TeamName(team_name)),
+                            (None, Some(team_id)) => Some(espn_ffl::cli::types::TeamFilter::TeamId(team_id)),
+                            (None, None) => None,
+                            (Some(_), Some(_)) => {
+                                eprintln!("Error: Cannot specify both --team and --team-id at the same time");
+                                std::process::exit(1);
+                            }
+                        }
+                    },
                 )
                 .await?
             }

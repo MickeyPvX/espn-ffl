@@ -1,7 +1,9 @@
 //! Projection analysis command implementation
 
 use crate::{
-    cli::types::{InjuryStatusFilter, LeagueId, Position, RosterStatusFilter, Season, Week},
+    cli::types::{
+        InjuryStatusFilter, LeagueId, Position, RosterStatusFilter, Season, TeamFilter, Week,
+    },
     espn::{
         cache_settings::load_or_fetch_league_settings,
         compute::{build_scoring_index, compute_points_for_week, select_weekly_stats},
@@ -13,7 +15,10 @@ use crate::{
 };
 
 use super::{
-    player_filters::{filter_and_convert_players, matches_injury_filter, matches_roster_filter},
+    player_filters::{
+        filter_and_convert_players, matches_injury_filter, matches_roster_filter,
+        matches_team_filter,
+    },
     resolve_league_id,
 };
 
@@ -30,6 +35,7 @@ pub async fn handle_projection_analysis(
     bias_strength: f64,
     injury_status: Option<InjuryStatusFilter>,
     roster_status: Option<RosterStatusFilter>,
+    team_filter: Option<TeamFilter>,
 ) -> Result<()> {
     let league_id = resolve_league_id(league_id)?;
     if !as_json {
@@ -145,7 +151,7 @@ pub async fn handle_projection_analysis(
     // Get current injury/roster status for filtering if needed
     let mut current_status_map = std::collections::HashMap::new();
 
-    if injury_status.is_some() || roster_status.is_some() {
+    if injury_status.is_some() || roster_status.is_some() || team_filter.is_some() {
         if !as_json {
             println!("Getting current injury/roster status for filtering...");
         }
@@ -203,7 +209,14 @@ pub async fn handle_projection_analysis(
                         return false;
                     }
                 }
-            } else if injury_status.is_some() || roster_status.is_some() {
+
+                // Apply team filter if specified
+                if let Some(team_filter) = &team_filter {
+                    if !matches_team_filter(player_status, team_filter) {
+                        return false;
+                    }
+                }
+            } else if injury_status.is_some() || roster_status.is_some() || team_filter.is_some() {
                 // Filters specified but no status info available - exclude this player
                 return false;
             }
@@ -679,7 +692,7 @@ mod integration_tests {
     use std::env;
     use tempfile::tempdir;
     use wiremock::{
-        matchers::{method, path, query_param},
+        matchers::{method, path, path_regex, query_param},
         Mock, MockServer, ResponseTemplate,
     };
 
@@ -745,6 +758,7 @@ mod integration_tests {
         _bias_strength: f64,
         injury_status: Option<InjuryStatusFilter>,
         roster_status: Option<RosterStatusFilter>,
+        _team_filter: Option<TeamFilter>,
     ) -> Result<()> {
         use crate::{
             espn::cache_settings::load_or_fetch_league_settings,
@@ -791,10 +805,34 @@ mod integration_tests {
     async fn test_handle_projection_analysis_with_empty_database() {
         let _db = create_test_database().await;
 
+        let season = Season::new(2023);
+        let league_id = LeagueId::new(12345);
+
+        // Create league settings cache to avoid HTTP calls
+        let league_settings_path =
+            crate::core::league_settings_path(season.as_u16(), league_id.as_u32());
+        if let Some(parent) = league_settings_path.parent() {
+            std::fs::create_dir_all(parent).ok();
+        }
+
+        let league_settings = serde_json::json!({
+            "scoringSettings": {
+                "scoringItems": [
+                    {"statId": 53, "points": 0.04, "pointsOverrides": {}},
+                    {"statId": 1, "points": 6.0, "pointsOverrides": {}}
+                ]
+            }
+        });
+        std::fs::write(
+            &league_settings_path,
+            serde_json::to_string_pretty(&league_settings).unwrap(),
+        )
+        .ok();
+
         let result = handle_projection_analysis(
-            Season::new(2023),
+            season,
             Week::new(1),
-            Some(LeagueId::new(12345)),
+            Some(league_id),
             None,  // no player name filter
             None,  // no position filter
             true,  // as_json to suppress console output
@@ -802,19 +840,23 @@ mod integration_tests {
             0.5,   // bias_strength
             None,  // no injury filter
             None,  // no roster filter
+            None,  // no team filter
         )
         .await;
 
-        // May fail due to missing league settings or succeed with empty results
-        // Both outcomes are acceptable for an empty database
+        // Should succeed with empty results since league settings are cached
+        // and no filters are applied that would require HTTP calls
         match result {
             Ok(_) => {
-                // Success with empty results is fine
+                // Success with empty results is expected
             }
-            Err(_) => {
-                // Expected if league settings are not cached
+            Err(e) => {
+                panic!("Should not fail with cached league settings: {:?}", e);
             }
         }
+
+        // Clean up
+        std::fs::remove_file(&league_settings_path).ok();
     }
 
     #[tokio::test]
@@ -950,6 +992,7 @@ mod integration_tests {
             0.7,   // bias_strength for adjustment
             None,  // No injury filter
             None,  // No roster filter
+            None,  // No team filter
         )
         .await;
 
@@ -971,6 +1014,88 @@ mod integration_tests {
         let season = Season::new(2023);
         let week = Week::new(3);
         let league_id = LeagueId::new(44444);
+
+        // Set up mock server for ESPN API
+        let mock_server = MockServer::start().await;
+
+        // Set up mock for player data endpoint
+        Mock::given(method("GET"))
+            .and(path("/seasons/2023/players"))
+            .and(query_param("forLeagueId", "44444"))
+            .and(query_param("view", "kona_player_info"))
+            .and(query_param("scoringPeriodId", "3"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+                {
+                    "id": 200001,
+                    "fullName": "Filter QB",
+                    "defaultPositionId": 1,
+                    "stats": [
+                        {
+                            "seasonId": 2023,
+                            "scoringPeriodId": 3,
+                            "statSourceId": 0,
+                            "statSplitTypeId": 1,
+                            "stats": {
+                                "53": 250.0,
+                                "1": 2.0
+                            }
+                        }
+                    ]
+                },
+                {
+                    "id": 200002,
+                    "fullName": "Filter RB1",
+                    "defaultPositionId": 2,
+                    "stats": [
+                        {
+                            "seasonId": 2023,
+                            "scoringPeriodId": 3,
+                            "statSourceId": 0,
+                            "statSplitTypeId": 1,
+                            "stats": {
+                                "53": 75.0,
+                                "24": 1.0
+                            }
+                        }
+                    ]
+                },
+                {
+                    "id": 200003,
+                    "fullName": "Filter RB2",
+                    "defaultPositionId": 2,
+                    "stats": [
+                        {
+                            "seasonId": 2023,
+                            "scoringPeriodId": 3,
+                            "statSourceId": 0,
+                            "statSplitTypeId": 1,
+                            "stats": {
+                                "53": 120.0,
+                                "24": 2.0
+                            }
+                        }
+                    ]
+                },
+                {
+                    "id": 200004,
+                    "fullName": "Filter WR",
+                    "defaultPositionId": 3,
+                    "stats": [
+                        {
+                            "seasonId": 2023,
+                            "scoringPeriodId": 3,
+                            "statSourceId": 0,
+                            "statSplitTypeId": 1,
+                            "stats": {
+                                "53": 85.0,
+                                "1": 1.0
+                            }
+                        }
+                    ]
+                }
+            ])))
+            .mount(&mock_server)
+            .await;
 
         // Create league settings cache
         let league_settings_path =
@@ -1028,7 +1153,8 @@ mod integration_tests {
         }
 
         // Test position filtering (exercises lines 164-177)
-        let qb_result = handle_projection_analysis(
+        let qb_result = handle_projection_analysis_with_mock(
+            &mock_server.uri(),
             season,
             week,
             Some(league_id),
@@ -1039,10 +1165,12 @@ mod integration_tests {
             0.5,
             None,
             None,
+            None,
         )
         .await;
 
-        let rb_result = handle_projection_analysis(
+        let rb_result = handle_projection_analysis_with_mock(
+            &mock_server.uri(),
             season,
             week,
             Some(league_id),
@@ -1051,6 +1179,7 @@ mod integration_tests {
             true,
             false,
             0.5,
+            None,
             None,
             None,
         )
@@ -1184,6 +1313,7 @@ mod integration_tests {
             1.0, // Full bias adjustment
             None,
             None,
+            None,
         )
         .await;
 
@@ -1198,6 +1328,7 @@ mod integration_tests {
             true,
             false,
             0.0, // No bias adjustment
+            None,
             None,
             None,
         )
@@ -1306,6 +1437,7 @@ mod integration_tests {
             0.5,
             None,
             None,
+            None,
         )
         .await;
 
@@ -1320,6 +1452,7 @@ mod integration_tests {
             false, // Console mode
             false,
             0.5,
+            None,
             None,
             None,
         )
@@ -1435,6 +1568,7 @@ mod integration_tests {
             0.5,
             None,
             None,
+            None,
         )
         .await;
 
@@ -1492,6 +1626,7 @@ mod integration_tests {
             0.5,
             None,
             None,
+            None,
         )
         .await;
 
@@ -1512,16 +1647,41 @@ mod integration_tests {
     async fn test_handle_projection_analysis_respects_refresh_parameter() {
         let _db = create_test_database().await;
 
+        let season = Season::new(2023);
+        let league_id = LeagueId::new(12345);
+
+        // Create league settings cache to avoid HTTP calls
+        let league_settings_path =
+            crate::core::league_settings_path(season.as_u16(), league_id.as_u32());
+        if let Some(parent) = league_settings_path.parent() {
+            std::fs::create_dir_all(parent).ok();
+        }
+
+        let league_settings = serde_json::json!({
+            "scoringSettings": {
+                "scoringItems": [
+                    {"statId": 53, "points": 0.04, "pointsOverrides": {}},
+                    {"statId": 1, "points": 6.0, "pointsOverrides": {}}
+                ]
+            }
+        });
+        std::fs::write(
+            &league_settings_path,
+            serde_json::to_string_pretty(&league_settings).unwrap(),
+        )
+        .ok();
+
         // Test with refresh=false - should NOT make HTTP calls
         let result_no_refresh = handle_projection_analysis(
-            Season::new(2023),
+            season,
             Week::new(1),
-            Some(LeagueId::new(12345)),
+            Some(league_id),
             None,
             None,
             true,  // as_json
             false, // refresh=false - should use cached data only
             0.5,
+            None,
             None,
             None,
         )
@@ -1535,38 +1695,121 @@ mod integration_tests {
             Err(_) => {} // Failure is also fine for this test
         }
 
-        // Test with refresh=true - would make HTTP calls but fail without mock server
-        let result_with_refresh = handle_projection_analysis(
-            Season::new(2023),
+        // Test with refresh=true using mock server
+        let mock_server = MockServer::start().await;
+
+        // Mock the ESPN API response
+        Mock::given(method("GET"))
+            .and(path_regex(r"/seasons/\d+/players"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+                    {
+                        "id": 4035687,
+                        "fullName": "Test Player",
+                        "defaultPositionId": 1,
+                        "injuryStatus": "ACTIVE",
+                        "onTeamId": 1,
+                    "stats": [
+                        {
+                            "seasonId": 2023,
+                            "scoringPeriodId": 1,
+                            "statSourceId": 0,
+                            "statSplitTypeId": 1,
+                            "stats": {
+                                "53": 250.0,
+                                "1": 1.5
+                            }
+                        }
+                    ]
+                    }
+            ])))
+            .mount(&mock_server)
+            .await;
+
+        let result_with_refresh = handle_projection_analysis_with_mock(
+            mock_server.uri().as_str(),
+            season,
             Week::new(1),
-            Some(LeagueId::new(12345)),
+            Some(league_id),
             None,
             None,
             true, // as_json
-            true, // refresh=true - would make HTTP calls
+            true, // refresh=true - makes HTTP calls to mock server
             0.5,
+            None,
             None,
             None,
         )
         .await;
 
-        // With refresh=true, this should make HTTP calls and likely fail (no mock server)
-        // The test verifies that the refresh parameter is actually being used
-        assert!(
-            result_with_refresh.is_err(),
-            "Expected HTTP call to fail without mock server when refresh=true"
-        );
+        // With refresh=true and mock server, this should succeed
+        assert!(result_with_refresh.is_ok());
+
+        // Clean up
+        std::fs::remove_file(&league_settings_path).ok();
     }
 
     #[tokio::test]
     async fn test_handle_projection_analysis_parameter_combinations() {
         let _db = create_test_database().await;
+        let mock_server = MockServer::start().await;
+
+        let season = Season::new(2023);
+        let league_id = LeagueId::new(12345);
+
+        // Create league settings cache to avoid HTTP calls
+        let league_settings_path =
+            crate::core::league_settings_path(season.as_u16(), league_id.as_u32());
+        if let Some(parent) = league_settings_path.parent() {
+            std::fs::create_dir_all(parent).ok();
+        }
+
+        let league_settings = serde_json::json!({
+            "scoringSettings": {
+                "scoringItems": [
+                    {"statId": 53, "points": 0.04, "pointsOverrides": {}},
+                    {"statId": 1, "points": 6.0, "pointsOverrides": {}}
+                ]
+            }
+        });
+        std::fs::write(
+            &league_settings_path,
+            serde_json::to_string_pretty(&league_settings).unwrap(),
+        )
+        .ok();
+
+        // Mock the ESPN API response
+        Mock::given(method("GET"))
+            .and(path_regex(r"/seasons/\d+/players"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+                {
+                    "id": 4035687,
+                    "fullName": "Tom Brady",
+                    "defaultPositionId": 1,
+                    "injuryStatus": "ACTIVE",
+                    "onTeamId": 1,
+                    "stats": [
+                        {
+                            "seasonId": 2023,
+                            "scoringPeriodId": 1,
+                            "statSourceId": 0,
+                            "statSplitTypeId": 1,
+                            "stats": {
+                                "53": 280.5,
+                                "1": 1.8
+                            }
+                        }
+                    ]
+                }
+            ])))
+            .mount(&mock_server)
+            .await;
 
         // Test with player name filter
-        let result_player_filter = handle_projection_analysis(
-            Season::new(2023),
+        let result_player_filter = handle_projection_analysis_with_mock(
+            mock_server.uri().as_str(),
+            season,
             Week::new(1),
-            Some(LeagueId::new(12345)),
+            Some(league_id),
             Some(vec!["Tom Brady".to_string()]),
             None,
             true,
@@ -1574,20 +1817,21 @@ mod integration_tests {
             0.5,
             None,
             None,
+            None,
         )
         .await;
-
-        // Should fail due to HTTP calls without mock server, but test parameters are valid
         assert!(
-            result_player_filter.is_err(),
-            "Expected failure due to HTTP calls without mock server"
+            result_player_filter.is_ok(),
+            "Error: {:?}",
+            result_player_filter.err()
         );
 
         // Test with position filter
-        let result_position_filter = handle_projection_analysis(
-            Season::new(2023),
+        let result_position_filter = handle_projection_analysis_with_mock(
+            mock_server.uri().as_str(),
+            season,
             Week::new(1),
-            Some(LeagueId::new(12345)),
+            Some(league_id),
             None,
             Some(vec![Position::QB]),
             true,
@@ -1595,21 +1839,18 @@ mod integration_tests {
             0.5,
             None,
             None,
+            None,
         )
         .await;
-
-        // Should fail due to HTTP calls without mock server
-        assert!(
-            result_position_filter.is_err(),
-            "Expected failure due to HTTP calls without mock server"
-        );
+        assert!(result_position_filter.is_ok());
 
         // Test with different bias strength values
         for bias in &[0.0, 0.3, 0.7, 1.0] {
-            let result_bias = handle_projection_analysis(
-                Season::new(2023),
+            let result_bias = handle_projection_analysis_with_mock(
+                mock_server.uri().as_str(),
+                season,
                 Week::new(1),
-                Some(LeagueId::new(12345)),
+                Some(league_id),
                 None,
                 None,
                 true,
@@ -1617,24 +1858,55 @@ mod integration_tests {
                 *bias,
                 None,
                 None,
+                None, // team_filter
             )
             .await;
-
-            // Should fail due to HTTP calls without mock server
             assert!(
-                result_bias.is_err(),
-                "Expected failure due to HTTP calls without mock server for bias {}",
+                result_bias.is_ok(),
+                "Bias {} should work with mock server",
                 bias
             );
         }
+
+        // Clean up
+        std::fs::remove_file(&league_settings_path).ok();
     }
 
     #[tokio::test]
-    async fn test_handle_projection_analysis_with_injury_filter_makes_http_calls() {
+    async fn test_handle_projection_analysis_with_injury_filter_uses_mock_server() {
         let _db = create_test_database().await;
+        let mock_server = MockServer::start().await;
 
-        // Test with injury status filter - should make HTTP calls for current status
-        let result_injury_filter = handle_projection_analysis(
+        // Mock the ESPN API response with injury data
+        Mock::given(method("GET"))
+            .and(path_regex(r"/seasons/\d+/players"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+                    {
+                        "id": 4035687,
+                        "fullName": "Josh Allen",
+                        "defaultPositionId": 1,
+                        "injuryStatus": "ACTIVE",
+                        "onTeamId": 1,
+                    "stats": [
+                        {
+                            "seasonId": 2023,
+                            "scoringPeriodId": 1,
+                            "statSourceId": 0,
+                            "statSplitTypeId": 1,
+                            "stats": {
+                                "53": 320.0,
+                                "1": 2.1
+                            }
+                        }
+                    ]
+                    }
+            ])))
+            .mount(&mock_server)
+            .await;
+
+        // Test with injury status filter using mock server
+        let result_injury_filter = handle_projection_analysis_with_mock(
+            mock_server.uri().as_str(),
             Season::new(2023),
             Week::new(1),
             Some(LeagueId::new(12345)),
@@ -1645,14 +1917,12 @@ mod integration_tests {
             0.5,
             Some(InjuryStatusFilter::Active), // This triggers HTTP call
             None,
+            None, // team_filter
         )
         .await;
 
-        // Should fail due to required HTTP calls for injury status without mock server
-        assert!(
-            result_injury_filter.is_err(),
-            "Expected failure - injury filtering requires live ESPN roster data"
-        );
+        // Should succeed with mock server providing injury data
+        assert!(result_injury_filter.is_ok());
     }
 
     #[tokio::test]
@@ -1739,6 +2009,7 @@ mod integration_tests {
             0.5,
             None, // NO injury filter - no HTTP calls needed
             None, // NO roster filter - no HTTP calls needed
+            None, // NO team filter
         )
         .await;
 
@@ -1771,6 +2042,7 @@ mod integration_tests {
             0.5,
             None,
             None,
+            None,
         )
         .await;
 
@@ -1779,8 +2051,38 @@ mod integration_tests {
             "Should fail when no league ID is provided"
         );
 
-        // Test with extreme parameter values
-        let result_extreme_bias = handle_projection_analysis(
+        // Test with extreme parameter values using mock server
+        let mock_server = MockServer::start().await;
+
+        // Mock the ESPN API response
+        Mock::given(method("GET"))
+            .and(path_regex(r"/seasons/\d+/players"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+                    {
+                        "id": 4035687,
+                        "fullName": "Test Player",
+                        "defaultPositionId": 1,
+                        "injuryStatus": "ACTIVE",
+                        "onTeamId": 1,
+                    "stats": [
+                        {
+                            "seasonId": 2023,
+                            "scoringPeriodId": 1,
+                            "statSourceId": 0,
+                            "statSplitTypeId": 1,
+                            "stats": {
+                                "53": 250.0,
+                                "1": 1.5
+                            }
+                        }
+                    ]
+                    }
+            ])))
+            .mount(&mock_server)
+            .await;
+
+        let result_extreme_bias = handle_projection_analysis_with_mock(
+            mock_server.uri().as_str(),
             Season::new(2023),
             Week::new(1),
             Some(LeagueId::new(12345)),
@@ -1791,22 +2093,49 @@ mod integration_tests {
             2.0, // bias > 1.0 should still work
             None,
             None,
+            None,
         )
         .await;
 
-        // Should fail due to HTTP calls without mock server
-        assert!(
-            result_extreme_bias.is_err(),
-            "Expected failure due to HTTP calls without mock server"
-        );
+        // Should succeed with mock server
+        assert!(result_extreme_bias.is_ok());
     }
 
     #[tokio::test]
     async fn test_handle_projection_analysis_output_modes() {
         let _db = create_test_database().await;
+        let mock_server = MockServer::start().await;
+
+        // Mock the ESPN API response
+        Mock::given(method("GET"))
+            .and(path_regex(r"/seasons/\d+/players"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+                    {
+                        "id": 4035687,
+                        "fullName": "Test Player",
+                        "defaultPositionId": 1,
+                        "injuryStatus": "ACTIVE",
+                        "onTeamId": 1,
+                    "stats": [
+                        {
+                            "seasonId": 2023,
+                            "scoringPeriodId": 1,
+                            "statSourceId": 0,
+                            "statSplitTypeId": 1,
+                            "stats": {
+                                "53": 250.0,
+                                "1": 1.5
+                            }
+                        }
+                    ]
+                    }
+            ])))
+            .mount(&mock_server)
+            .await;
 
         // Test JSON output mode
-        let result_json = handle_projection_analysis(
+        let result_json = handle_projection_analysis_with_mock(
+            mock_server.uri().as_str(),
             Season::new(2023),
             Week::new(1),
             Some(LeagueId::new(12345)),
@@ -1817,17 +2146,15 @@ mod integration_tests {
             0.5,
             None,
             None,
+            None,
         )
         .await;
 
-        // Should fail due to HTTP calls without mock server
-        assert!(
-            result_json.is_err(),
-            "Expected failure due to HTTP calls without mock server"
-        );
+        assert!(result_json.is_ok());
 
         // Test console output mode
-        let result_console = handle_projection_analysis(
+        let result_console = handle_projection_analysis_with_mock(
+            mock_server.uri().as_str(),
             Season::new(2023),
             Week::new(1),
             Some(LeagueId::new(12345)),
@@ -1838,13 +2165,10 @@ mod integration_tests {
             0.5,
             None,
             None,
+            None,
         )
         .await;
 
-        // Should fail due to HTTP calls without mock server
-        assert!(
-            result_console.is_err(),
-            "Expected failure due to HTTP calls without mock server"
-        );
+        assert!(result_console.is_ok());
     }
 }

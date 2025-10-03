@@ -62,6 +62,7 @@ use crate::espn::types::CachedPlayerData;
 /// #   refresh: false,
 /// #   injury_status: None,
 /// #   roster_status: None,
+/// #   team_filter: None,
 /// };
 /// ```
 #[derive(Debug)]
@@ -119,6 +120,7 @@ pub struct PlayerDataParams {
 /// #   refresh: false,
 /// #   injury_status: None,
 /// #   roster_status: None,
+/// #   team_filter: None,
 ///     // ... other fields
 /// };
 ///
@@ -851,6 +853,7 @@ mod tests {
                 refresh: false, // This should trigger cached data usage
                 clear_db: false,
                 refresh_positions: false,
+                team_filter: None,
                 projected: false,
             };
 
@@ -894,6 +897,7 @@ mod tests {
                 refresh: false,
                 clear_db: false,
                 refresh_positions: false,
+                team_filter: None,
                 projected: false,
             };
 
@@ -936,6 +940,7 @@ mod tests {
                 refresh: false,
                 clear_db: true, // This should clear the database
                 refresh_positions: false,
+                team_filter: None,
                 projected: false,
             };
 
@@ -968,6 +973,7 @@ mod tests {
                 refresh: false,
                 clear_db: false,
                 refresh_positions: false,
+                team_filter: None,
                 projected: false,
             };
 
@@ -990,6 +996,7 @@ mod tests {
                 refresh: false,
                 clear_db: false,
                 refresh_positions: false,
+                team_filter: None,
                 projected: false,
             };
 
@@ -1018,6 +1025,7 @@ mod tests {
                 refresh: false,
                 clear_db: false,
                 refresh_positions: false,
+                team_filter: None,
                 projected: true, // Test projected data flag
             };
 
@@ -1040,6 +1048,7 @@ mod tests {
                 refresh: false,
                 clear_db: false,
                 refresh_positions: false,
+                team_filter: None,
                 projected: false, // Test actual data flag
             };
 
@@ -1067,6 +1076,7 @@ mod tests {
                 refresh: false,
                 clear_db: false,
                 refresh_positions: false,
+                team_filter: None,
                 projected: false,
             };
 
@@ -1089,6 +1099,7 @@ mod tests {
                 refresh: false,
                 clear_db: false,
                 refresh_positions: false,
+                team_filter: None,
                 projected: false,
             };
 
@@ -1116,6 +1127,7 @@ mod tests {
                 refresh: false,
                 clear_db: false,
                 refresh_positions: false,
+                team_filter: None,
                 projected: false,
             };
 
@@ -1138,6 +1150,7 @@ mod tests {
                 refresh: false,
                 clear_db: false,
                 refresh_positions: false,
+                team_filter: None,
                 projected: false,
             };
 
@@ -1188,6 +1201,7 @@ mod tests {
                 refresh: true, // Force refresh despite cached data
                 clear_db: false,
                 refresh_positions: false,
+                team_filter: None,
                 projected: false,
             };
 
@@ -1222,6 +1236,7 @@ mod tests {
                     refresh: false,
                     clear_db: false,
                     refresh_positions: false,
+                    team_filter: None,
                     projected: false,
                 };
 
@@ -1666,6 +1681,7 @@ mod tests {
                 refresh: false, // This is key - should use cached data
                 clear_db: false,
                 refresh_positions: false,
+                team_filter: None,
                 projected: false,
             };
 
@@ -1756,6 +1772,7 @@ mod tests {
                 refresh: false, // Use cached data
                 clear_db: false,
                 refresh_positions: false,
+                team_filter: None,
                 projected: false,
             };
 
