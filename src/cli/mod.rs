@@ -35,6 +35,14 @@ pub struct CommonFilters {
     /// Filter by roster status.
     #[clap(long)]
     pub roster_status: Option<RosterStatusFilter>,
+
+    /// Filter by fantasy team name (partial match) - e.g., "kenny" matches "Kenny Rogers' Toasters".
+    #[clap(long)]
+    pub team: Option<String>,
+
+    /// Filter by fantasy team ID.
+    #[clap(long)]
+    pub team_id: Option<u32>,
 }
 
 #[derive(Debug, Subcommand)]

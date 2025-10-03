@@ -49,6 +49,18 @@ async fn main() -> Result<()> {
                     refresh,
                     injury_status: filters.injury_status,
                     roster_status: filters.roster_status,
+                    team_filter: {
+                        // Convert CLI team options to TeamFilter
+                        match (filters.team, filters.team_id) {
+                            (Some(team_name), None) => Some(espn_ffl::cli::types::TeamFilter::TeamName(team_name)),
+                            (None, Some(team_id)) => Some(espn_ffl::cli::types::TeamFilter::TeamId(team_id)),
+                            (None, None) => None,
+                            (Some(_), Some(_)) => {
+                                eprintln!("Error: Cannot specify both --team and --team-id at the same time");
+                                std::process::exit(1);
+                            }
+                        }
+                    },
                 })
                 .await?
             }

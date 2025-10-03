@@ -61,7 +61,7 @@ pub struct LeagueSettings {
 }
 
 /// Top-level envelope for mSettings
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct LeagueEnvelope {
     pub settings: LeagueSettings,
 }

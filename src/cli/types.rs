@@ -126,7 +126,7 @@ pub struct Week(pub u16);
 /// let filter = InjuryStatusFilter::Active;
 /// assert_eq!(filter.to_string(), "Active");
 /// ```
-#[derive(Debug, Clone, clap::ValueEnum)]
+#[derive(Debug, Clone, PartialEq, clap::ValueEnum)]
 pub enum InjuryStatusFilter {
     /// Players who are active/healthy
     Active,
@@ -162,10 +162,23 @@ impl fmt::Display for InjuryStatusFilter {
 }
 
 /// Roster status filter for CLI
-#[derive(Debug, Clone, clap::ValueEnum)]
+#[derive(Debug, Clone, PartialEq, clap::ValueEnum)]
 pub enum RosterStatusFilter {
     Rostered, // On any team in the league
     FA,       // Free agent (not on any team)
+}
+
+/// Team filter for CLI - allows filtering by specific fantasy teams
+#[derive(Debug, Clone, PartialEq)]
+pub enum TeamFilter {
+    /// Filter by team ID
+    TeamId(u32),
+    /// Filter by team name (case-insensitive partial match)
+    TeamName(String),
+    /// Filter by multiple team IDs
+    TeamIds(Vec<u32>),
+    /// Filter by multiple team names (case-insensitive partial match)
+    TeamNames(Vec<String>),
 }
 
 impl fmt::Display for RosterStatusFilter {
@@ -173,6 +186,17 @@ impl fmt::Display for RosterStatusFilter {
         match self {
             RosterStatusFilter::Rostered => write!(f, "Rostered"),
             RosterStatusFilter::FA => write!(f, "Free Agent"),
+        }
+    }
+}
+
+impl fmt::Display for TeamFilter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TeamFilter::TeamId(id) => write!(f, "Team ID: {}", id),
+            TeamFilter::TeamName(name) => write!(f, "Team Name: {}", name),
+            TeamFilter::TeamIds(ids) => write!(f, "Team IDs: {:?}", ids),
+            TeamFilter::TeamNames(names) => write!(f, "Team Names: {:?}", names),
         }
     }
 }
@@ -226,7 +250,7 @@ impl FromStr for Week {
 /// // Check position eligibility
 /// assert!(Position::FLEX.get_eligible_positions().contains(&Position::RB));
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Position {
     /// Quarterback
     QB,
@@ -266,7 +290,7 @@ impl Position {
     pub fn get_eligible_positions(&self) -> Vec<Position> {
         match self {
             Position::FLEX => vec![Position::RB, Position::WR, Position::TE],
-            other => vec![other.clone()],
+            other => vec![*other],
         }
     }
 

@@ -11,6 +11,7 @@ A fast, reliable command-line tool for querying ESPN Fantasy Football player sta
 - **Smart filtering** - Server-side filtering by injury status and roster position for efficiency
 - **Injury status filtering** - Find active, injured, questionable, out, or IR players
 - **Roster status filtering** - Filter by rostered players vs free agents
+- **Team filtering** - Filter by specific fantasy teams using flexible team name or ID matching
 - **Projection analysis** - Compare ESPN projections vs. actual performance with bias correction
 - **FLEX position support** - Filter by FLEX to get RB/WR/TE players
 - **Export data** as JSON for analysis or integration
@@ -104,6 +105,15 @@ espn-ffl get player-data -p QB --roster-status rostered --week 1
 
 # Combine filters: active rostered RBs
 espn-ffl get player-data -p RB --injury-status active --roster-status rostered --week 1
+
+# Filter by team name (partial match, case-insensitive)
+espn-ffl get player-data --team kenny --week 1  # Matches "Kenny Rogers' Toasters"
+
+# Filter by team ID
+espn-ffl get player-data --team-id 123 --week 1
+
+# Combine team filter with other filters
+espn-ffl get player-data --team mike --injury-status active --week 1
 ```
 
 ### Specify a league
@@ -202,6 +212,12 @@ espn-ffl get player-data -n "Josh Allen" -n "Lamar Jackson" -n "Patrick Mahomes"
 
 # Check rostered players' injury status
 espn-ffl get player-data --roster-status rostered --injury-status injured --week 1
+
+# Get all players from a specific team
+espn-ffl get player-data --team "Kenny Rogers" --week 1
+
+# Check your opponent's active lineup
+espn-ffl get player-data --team-id 456 --injury-status active --week 1
 ```
 
 **Fantasy research and analysis:**
@@ -271,6 +287,8 @@ Get player statistics and fantasy points for a specific week.
 - `--roster-status <STATUS>` - Filter by roster status (client-side filtered):
   - `rostered` - Players on fantasy teams
   - `fa` - Free agents
+- `--team <NAME>` - Filter by team name (partial match, case-insensitive)
+- `--team-id <ID>` - Filter by team ID
 
 **Output Options:**
 - `--json` - Output as JSON instead of text
@@ -296,6 +314,8 @@ Analyze ESPN projection accuracy and generate bias-corrected predictions.
 - `-p, --position <POS>` - Filter by position (repeatable)
 - `--injury-status <STATUS>` - Filter by injury status (same options as player-data)
 - `--roster-status <STATUS>` - Filter by roster status (same options as player-data)
+- `--team <NAME>` - Filter by team name (same options as player-data)
+- `--team-id <ID>` - Filter by team ID (same options as player-data)
 
 **Analysis Options:**
 - `--bias-strength <FLOAT>` - Bias correction strength (0.0-2.0+, default: 1.0)
