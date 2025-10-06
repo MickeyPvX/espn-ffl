@@ -176,9 +176,14 @@ pub async fn handle_projection_analysis(
             // Apply position filter
             if let Some(pos_filters) = &positions {
                 let position_matches = pos_filters.iter().any(|p| {
-                    p.get_all_position_ids()
-                        .iter()
-                        .any(|eligible_pos| estimate.position == eligible_pos.to_string())
+                    match p {
+                        // For flexible positions, check if player position is eligible
+                        Position::FLEX => {
+                            matches!(estimate.position.as_str(), "RB" | "WR" | "TE")
+                        }
+                        // For individual positions, compare directly
+                        _ => estimate.position == p.to_string(),
+                    }
                 });
                 if !position_matches {
                     return false;

@@ -20,7 +20,7 @@ pub struct CommonFilters {
     pub player_name: Option<Vec<String>>,
 
     /// Filter by position (repeatable): `-p QB -p RB`.
-    #[clap(short = 'p', long = "position")]
+    #[clap(short = 'p', long = "position", value_parser = clap::value_parser!(Position))]
     pub positions: Option<Vec<Position>>,
 
     /// Season year (e.g. 2025).
