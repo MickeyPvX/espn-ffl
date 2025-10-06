@@ -6,10 +6,7 @@ pub mod player_filters;
 pub mod projection_analysis;
 pub mod update_all_data;
 
-use crate::{cli::types::LeagueId, error::EspnError, Result, LEAGUE_ID_ENV_VAR};
-
-#[cfg(test)]
-mod tests;
+use crate::{error::EspnError, LeagueId, Result, LEAGUE_ID_ENV_VAR};
 
 /// Resolve league ID from option or environment variable
 pub fn resolve_league_id(league_id: Option<LeagueId>) -> Result<LeagueId> {

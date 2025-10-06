@@ -1,7 +1,7 @@
 //! Basic database query operations
 
 use super::{models::*, schema::PlayerDatabase};
-use crate::cli::types::{PlayerId, Position, Season, Week};
+use crate::{PlayerId, Position, Season, Week};
 use anyhow::Result;
 use rusqlite::{params, Row};
 use std::time::{SystemTime, UNIX_EPOCH};

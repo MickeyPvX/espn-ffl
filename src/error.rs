@@ -2,9 +2,6 @@
 
 use thiserror::Error;
 
-#[cfg(test)]
-mod tests;
-
 pub type Result<T> = std::result::Result<T, EspnError>;
 
 #[derive(Error, Debug)]

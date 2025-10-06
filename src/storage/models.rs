@@ -1,9 +1,6 @@
 //! Data models for the storage layer
 
-use crate::{
-    cli::types::{PlayerId, Season, Week},
-    espn::types::InjuryStatus,
-};
+use crate::{espn::types::InjuryStatus, PlayerId, Season, Week};
 use serde::{Deserialize, Serialize};
 
 /// Player information stored in the database
@@ -35,7 +32,6 @@ pub struct PlayerWeeklyStats {
 
 impl PlayerWeeklyStats {
     /// Create a minimal PlayerWeeklyStats for testing
-    #[cfg(test)]
     pub fn test_minimal(
         player_id: PlayerId,
         season: Season,
@@ -61,7 +57,6 @@ impl PlayerWeeklyStats {
     }
 
     /// Create a PlayerWeeklyStats with all required fields and some defaults
-    #[cfg(test)]
     pub fn test_with_fields(
         player_id: PlayerId,
         season: Season,

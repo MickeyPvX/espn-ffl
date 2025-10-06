@@ -1,7 +1,7 @@
 //! Analysis operations for projection accuracy and performance estimation
 
 use super::{models::*, schema::PlayerDatabase};
-use crate::cli::types::{PlayerId, Season, Week};
+use crate::{PlayerId, Season, Week};
 use anyhow::Result;
 use rusqlite::params;
 
@@ -96,6 +96,7 @@ impl PlayerDatabase {
             };
 
             // Get individual bias values for this player
+            // Exclude 0-point projections (usually BYE weeks or non-playing situations)
             let mut bias_stmt = self.conn.prepare(
                 "SELECT (s.projected_points - s.actual_points) as bias
                  FROM player_weekly_stats s
@@ -103,7 +104,8 @@ impl PlayerDatabase {
                    AND s.season = ?
                    AND s.week < ?
                    AND s.projected_points IS NOT NULL
-                   AND s.actual_points IS NOT NULL",
+                   AND s.actual_points IS NOT NULL
+                   AND s.projected_points > 0",
             )?;
 
             let bias_rows = bias_stmt.query_map(
@@ -122,89 +124,68 @@ impl PlayerDatabase {
                 continue;
             }
 
-            // Apply exponential smoothing with higher weight on recent games
-            // Alpha parameter: higher = more weight on recent games
-            let alpha: f64 = 0.3; // Can be tuned based on sport/position
-
-            let (smoothed_bias, prediction_variance) = if bias_values.len() == 1 {
-                (bias_values[0], bias_values[0].powi(2))
-            } else {
-                // Sort by recency (most recent games first in the bias query)
-                // Apply exponential smoothing
-                let mut smoothed = bias_values[0]; // Start with most recent
-                let mut squared_errors = 0.0;
-
-                for (i, &bias) in bias_values.iter().enumerate().skip(1) {
-                    let weight = alpha * (1.0 - alpha).powi(i as i32);
-                    smoothed = alpha * bias + (1.0 - alpha) * smoothed;
-                    squared_errors += weight * (bias - smoothed).powi(2);
-                }
-
-                // Estimate prediction variance (uncertainty in our bias estimate)
-                let variance = if bias_values.len() > 2 {
-                    squared_errors / (bias_values.len() - 1) as f64
-                } else {
-                    bias_values
-                        .iter()
-                        .map(|&b| (b - smoothed).powi(2))
-                        .sum::<f64>()
-                        / bias_values.len() as f64
-                };
-
-                (smoothed, variance)
-            };
+            // Simple approach: Calculate player's average bias (no recency weighting)
+            let average_bias = bias_values.iter().sum::<f64>() / bias_values.len() as f64;
 
             // Start with ESPN's projection
             let base_projection = *espn_projection;
 
-            // Calculate bias adjustment with Bayesian shrinkage
-            // As sample size increases, we trust our bias estimate more
-            let sample_reliability = 1.0 - (-0.5 * games_count as f64).exp(); // Exponential approach to 1.0
-            let bias_adjustment = -smoothed_bias * sample_reliability * bias_strength;
+            // Simple bias adjustment - trust player-specific patterns
+            let sample_factor = games_count as f64 / (games_count as f64 + 2.0);
 
+            // Only limit extreme biases
+            let bias_magnitude = average_bias.abs();
+            let magnitude_factor = if bias_magnitude > 10.0 {
+                10.0 / bias_magnitude
+            } else {
+                1.0
+            };
+
+            let adjustment_strength = sample_factor * magnitude_factor;
+            let bias_adjustment = -average_bias * adjustment_strength * bias_strength;
             let estimated_points = (base_projection + bias_adjustment).max(0.0);
 
-            // Calculate confidence using proper statistical approach
-            // Confidence should reflect prediction uncertainty, not just sample size
-            let base_uncertainty: f64 = 3.0; // Base uncertainty in fantasy points
-            let bias_uncertainty = prediction_variance.sqrt();
-            let total_uncertainty = (base_uncertainty.powi(2) + bias_uncertainty.powi(2)).sqrt();
+            // Confidence based on pattern consistency
+            let bias_variance = if bias_values.len() > 1 {
+                bias_values
+                    .iter()
+                    .map(|&x| (x - average_bias).powi(2))
+                    .sum::<f64>()
+                    / (bias_values.len() - 1) as f64
+            } else {
+                0.0
+            };
 
-            // Convert uncertainty to confidence (higher uncertainty = lower confidence)
-            // Use inverse relationship with reasonable bounds
-            let uncertainty_factor = 1.0 / (1.0 + total_uncertainty / 5.0); // Scale factor of 5.0 can be tuned
+            let bias_std = bias_variance.sqrt();
+            let consistency_factor = 1.0 / (1.0 + bias_std / 3.0); // Higher std = lower confidence
+            let confidence = (0.3 + 0.5 * consistency_factor).clamp(0.25, 0.85);
 
-            // Combine with sample size factor (smooth linear growth)
-            let sample_factor = (games_count as f64 / (games_count as f64 + 3.0)).min(1.0); // Asymptotic approach to 1.0
-
-            let confidence = (uncertainty_factor * sample_factor * 0.9 + 0.1).clamp(0.1, 1.0);
-
-            // Generate reasoning
-            let reasoning = if games_count < 3 {
-                format!(
-                    "Limited data ({} games) - using ESPN projection with high uncertainty",
-                    games_count
-                )
-            } else if bias_adjustment.abs() > 1.0 {
-                if smoothed_bias > 0.0 {
+            // Generate simple reasoning
+            let reasoning = if bias_adjustment.abs() > 1.0 {
+                if average_bias > 0.0 {
                     format!(
-                        "Recent trend shows ESPN overestimates by {:.1} pts ({}% confidence), adjusted down {:.1} pts",
-                        smoothed_bias,
-                        (confidence * 100.0) as u8,
-                        bias_adjustment.abs()
+                        "Avg bias: ESPN overestimates by {:.1} pts ({} games, {:.1} std) - adjusted down {:.1} pts ({}% confidence)",
+                        average_bias,
+                        games_count,
+                        bias_std,
+                        bias_adjustment.abs(),
+                        (confidence * 100.0) as u8
                     )
                 } else {
                     format!(
-                        "Recent trend shows ESPN underestimates by {:.1} pts ({}% confidence), adjusted up {:.1} pts",
-                        smoothed_bias.abs(),
-                        (confidence * 100.0) as u8,
-                        bias_adjustment
+                        "Avg bias: ESPN underestimates by {:.1} pts ({} games, {:.1} std) - adjusted up {:.1} pts ({}% confidence)",
+                        average_bias.abs(),
+                        games_count,
+                        bias_std,
+                        bias_adjustment,
+                        (confidence * 100.0) as u8
                     )
                 }
             } else {
                 format!(
-                    "ESPN projection {:.1} pts - minimal bias detected ({}% confidence)",
+                    "ESPN projection {:.1} pts - minimal bias detected ({} games, {}% confidence)",
                     base_projection,
+                    games_count,
                     (confidence * 100.0) as u8
                 )
             };

@@ -1,6 +1,6 @@
 //! Unit tests for scoring computation logic
 
-use super::*;
+use espn_ffl::espn::{compute::*, types::*};
 use serde_json::json;
 use std::collections::BTreeMap;
 

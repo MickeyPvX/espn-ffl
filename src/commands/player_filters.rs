@@ -1,9 +1,14 @@
 //! Shared player filtering logic for commands
 
 use crate::{
-    cli::types::{InjuryStatusFilter, PlayerId, Position, RosterStatusFilter},
+    cli::types::{
+        filters::{InjuryStatusFilter, RosterStatusFilter},
+        position::Position,
+    },
     espn::types::{InjuryStatus, Player, PlayerPoints},
+    PlayerId,
 };
+use rayon::prelude::*;
 
 /// Filter result for a player after applying all filtering logic
 pub struct FilteredPlayer {
@@ -16,68 +21,71 @@ pub fn filter_and_convert_players(
     players: Vec<Player>,
     player_names: Option<Vec<String>>,
     position_filter: Option<Vec<Position>>,
-) -> impl Iterator<Item = FilteredPlayer> {
-    players.into_iter().filter_map(move |player| {
-        // Skip invalid player IDs and individual defensive players
-        // D/ST teams (position 16) have negative IDs like -16001, which we want to keep
-        // Individual defensive players (positions 8-15) are not allowed in this league
-        if (player.id < 0 && player.default_position_id != 16)
-            || (player.default_position_id >= 8 && player.default_position_id <= 15)
-        {
-            return None;
-        }
-
-        // Apply local player name filtering for multiple names
-        if let Some(names) = &player_names {
-            if names.len() > 1 {
-                let player_name = player.full_name.as_deref().unwrap_or("");
-                let matches = names
-                    .iter()
-                    .any(|name| player_name.to_lowercase().contains(&name.to_lowercase()));
-                if !matches {
-                    return None;
-                }
-            }
-        }
-
-        // Apply position filtering on the client side to ensure accuracy
-        if let Some(positions) = &position_filter {
-            let player_position = if player.default_position_id < 0 {
-                None
-            } else {
-                Position::try_from(player.default_position_id as u8).ok()
-            };
-
-            if let Some(pos) = player_position {
-                let matches = positions.iter().any(|filter_pos| {
-                    // For FLEX, check if player position is eligible
-                    if *filter_pos == Position::FLEX {
-                        filter_pos.get_eligible_positions().contains(&pos)
-                    } else {
-                        *filter_pos == pos
-                    }
-                });
-                if !matches {
-                    return None;
-                }
-            } else {
-                // Player has no valid position, exclude it
+) -> Vec<FilteredPlayer> {
+    players
+        .into_par_iter()
+        .filter_map(move |player| {
+            // Skip invalid player IDs and individual defensive players
+            // D/ST teams (position 16) have negative IDs like -16001, which we want to keep
+            // Individual defensive players (positions 8-15) are not allowed in this league
+            if (player.id < 0 && player.default_position_id != 16)
+                || (player.default_position_id >= 8 && player.default_position_id <= 15)
+            {
                 return None;
             }
-        }
 
-        // Handle negative IDs for D/ST teams by converting to positive
-        let player_id = if player.id < 0 {
-            PlayerId::new((-player.id) as u64)
-        } else {
-            PlayerId::new(player.id as u64)
-        };
+            // Apply local player name filtering for multiple names
+            if let Some(names) = &player_names {
+                if names.len() > 1 {
+                    let player_name = player.full_name.as_deref().unwrap_or("");
+                    let matches = names
+                        .iter()
+                        .any(|name| player_name.to_lowercase().contains(&name.to_lowercase()));
+                    if !matches {
+                        return None;
+                    }
+                }
+            }
 
-        Some(FilteredPlayer {
-            player_id,
-            original_player: player,
+            // Apply position filtering on the client side to ensure accuracy
+            if let Some(positions) = &position_filter {
+                let player_position = if player.default_position_id < 0 {
+                    None
+                } else {
+                    Position::try_from(player.default_position_id as u8).ok()
+                };
+
+                if let Some(pos) = player_position {
+                    let matches = positions.iter().any(|filter_pos| {
+                        // For FLEX, check if player position is eligible
+                        if *filter_pos == Position::FLEX {
+                            filter_pos.get_all_position_ids().contains(&pos.to_u8())
+                        } else {
+                            *filter_pos == pos
+                        }
+                    });
+                    if !matches {
+                        return None;
+                    }
+                } else {
+                    // Player has no valid position, exclude it
+                    return None;
+                }
+            }
+
+            // Handle negative IDs for D/ST teams by converting to positive
+            let player_id = if player.id < 0 {
+                PlayerId::new((-player.id) as u64)
+            } else {
+                PlayerId::new(player.id as u64)
+            };
+
+            Some(FilteredPlayer {
+                player_id,
+                original_player: player,
+            })
         })
-    })
+        .collect()
 }
 
 /// Check if a player matches the given injury status filter
@@ -133,7 +141,7 @@ pub fn matches_roster_filter(player: &PlayerPoints, filter: &RosterStatusFilter)
 ///
 /// ```rust
 /// # use espn_ffl::commands::player_filters::apply_injury_filter;
-/// # use espn_ffl::cli::types::InjuryStatusFilter;
+/// # use espn_ffl::cli::types::filters::InjuryStatusFilter;
 /// # use espn_ffl::espn::types::PlayerPoints;
 /// let mut players = vec![/* PlayerPoints objects */];
 /// apply_injury_filter(&mut players, &InjuryStatusFilter::Active);
@@ -148,7 +156,7 @@ pub fn apply_injury_filter(players: &mut Vec<PlayerPoints>, filter: &InjuryStatu
 ///
 /// ```rust
 /// # use espn_ffl::commands::player_filters::apply_roster_filter;
-/// # use espn_ffl::cli::types::RosterStatusFilter;
+/// # use espn_ffl::cli::types::filters::RosterStatusFilter;
 /// # use espn_ffl::espn::types::PlayerPoints;
 /// let mut players = vec![/* PlayerPoints objects */];
 /// apply_roster_filter(&mut players, &RosterStatusFilter::FA);
@@ -177,7 +185,7 @@ pub fn apply_status_filters(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cli::types::Week;
+    use crate::Week;
 
     fn create_test_player(
         name: &str,

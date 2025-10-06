@@ -27,6 +27,15 @@ impl PlayerDatabase {
         Ok(db)
     }
 
+    /// Create an in-memory database for testing
+    pub fn new_in_memory() -> Result<Self> {
+        let conn = Connection::open_in_memory()?;
+        conn.execute("PRAGMA foreign_keys = ON", [])?;
+        let mut db = Self { conn };
+        db.initialize_schema()?;
+        Ok(db)
+    }
+
     /// Get the path to the database file
     fn database_path() -> Result<PathBuf> {
         let cache_dir = cache_dir().ok_or_else(|| EspnError::Cache {

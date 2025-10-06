@@ -1,9 +1,6 @@
-use crate::cli::types::{PlayerId, Season, Week};
+use crate::{PlayerId, Season, Week};
 use serde::{de::Error, Deserialize, Deserializer, Serialize};
 use std::collections::BTreeMap;
-
-#[cfg(test)]
-mod tests;
 
 /// Parameters for creating PlayerPoints from cached data to avoid too many function arguments.
 #[derive(Debug)]
@@ -199,7 +196,7 @@ impl PlayerPoints {
     /// Create PlayerPoints from PerformanceEstimate for status checking
     pub fn from_estimate(
         estimate: &crate::storage::models::PerformanceEstimate,
-        week: crate::cli::types::Week,
+        week: crate::Week,
     ) -> Self {
         Self {
             id: estimate.player_id,

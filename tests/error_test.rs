@@ -1,20 +1,18 @@
 //! Unit tests for error handling
 
-use super::*;
+use espn_ffl::EspnError;
 use std::io;
 
 #[cfg(test)]
 mod espn_error_tests {
     use super::*;
 
-    #[tokio::test]
-    async fn test_http_error_conversion() {
-        // Create a real HTTP error by making a request to an invalid URL
-        let client = reqwest::Client::new();
-        let result = client
-            .get("http://invalid-url-that-does-not-exist.fake")
-            .send()
-            .await;
+    #[test]
+    fn test_http_error_conversion() {
+        // Create a HTTP error without making any real network requests
+        // Use reqwest's builder to create an invalid request that will fail during construction
+        let invalid_url = "not-a-valid-url";
+        let result = reqwest::Client::new().get(invalid_url).build();
         let reqwest_error = result.unwrap_err();
         let espn_error = EspnError::from(reqwest_error);
 
@@ -163,7 +161,7 @@ mod espn_error_tests {
 
     #[test]
     fn test_result_type_alias() {
-        fn test_function() -> Result<String> {
+        fn test_function() -> espn_ffl::Result<String> {
             Ok("success".to_string())
         }
 
@@ -174,7 +172,7 @@ mod espn_error_tests {
 
     #[test]
     fn test_result_type_alias_error() {
-        fn test_function() -> Result<String> {
+        fn test_function() -> espn_ffl::Result<String> {
             Err(EspnError::NoData)
         }
 
