@@ -3,9 +3,6 @@ use std::collections::BTreeMap;
 
 use crate::espn::types::ScoringItem;
 
-#[cfg(test)]
-mod tests;
-
 pub fn build_scoring_index(items: &[ScoringItem]) -> BTreeMap<u16, (f64, BTreeMap<u8, f64>)> {
     let mut idx = BTreeMap::new();
     for it in items {

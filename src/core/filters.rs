@@ -83,10 +83,10 @@ pub fn build_players_filter(
     player_names: Option<Vec<String>>,
     slots: Option<Vec<u8>>,
     include_active: Option<bool>,
-    injury_status_filter: Option<&crate::cli::types::InjuryStatusFilter>,
-    _roster_status_filter: Option<&crate::cli::types::RosterStatusFilter>,
+    injury_status_filter: Option<&crate::cli::types::filters::InjuryStatusFilter>,
+    _roster_status_filter: Option<&crate::cli::types::filters::RosterStatusFilter>,
 ) -> PlayersFilter {
-    use crate::cli::types::InjuryStatusFilter;
+    use crate::cli::types::filters::InjuryStatusFilter;
 
     let mut f = PlayersFilter::default();
 

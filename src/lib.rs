@@ -15,26 +15,13 @@
 //! ## Quick Start
 //!
 //! ```rust,no_run
-//! use espn_ffl::{LeagueId, Season, Week, commands::player_data::*};
+//! use espn_ffl::{LeagueId, Season, Week, Position, commands::player_data::*};
 //!
 //! # async fn example() -> espn_ffl::Result<()> {
 //! // Get player data for current week
-//! let params = PlayerDataParams {
-//!     league_id: Some(LeagueId::new(123456)),
-//!     season: Season::default(),
-//!     week: Week::new(1),
-//!     // ... other parameters
-//! #   debug: false,
-//! #   as_json: false,
-//! #   player_name: None,
-//! #   positions: None,
-//! #   projected: false,
-//! #   refresh_positions: false,
-//! #   clear_db: false,
-//! #   refresh: false,
-//! #   injury_status: None,
-//! #   roster_status: None,
-//! };
+//! let params = PlayerDataParams::new(Season::default(), Week::new(1), false)
+//!     .with_league_id(LeagueId::new(123456))
+//!     .with_positions(vec![Position::QB, Position::RB]);
 //!
 //! handle_player_data(params).await?;
 //! # Ok(())
@@ -56,7 +43,11 @@ pub mod espn;
 pub mod storage;
 
 // Re-export commonly used types
-pub use cli::types::{LeagueId, PlayerId, Position, Season, Week};
+pub use cli::types::{
+    ids::{LeagueId, PlayerId},
+    position::Position,
+    time::{Season, Week},
+};
 pub use error::{EspnError, Result};
 pub use espn::types::{LeagueSettings, ScoringItem, ScoringSettings};
 

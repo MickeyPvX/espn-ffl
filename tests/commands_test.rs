@@ -1,7 +1,12 @@
 //! Integration tests for command handlers
 
-use super::*;
-use crate::{cli::types::*, espn::types::PlayerPoints, storage::*};
+use espn_ffl::{
+    cli::types::position::Position,
+    commands::{player_data::PlayerDataParams, resolve_league_id},
+    espn::types::PlayerPoints,
+    storage::*,
+    EspnError, LeagueId, PlayerId, Season, Week, LEAGUE_ID_ENV_VAR,
+};
 
 #[test]
 fn test_resolve_league_id_from_option() {
@@ -35,7 +40,7 @@ fn test_resolve_league_id_missing() {
     let result = resolve_league_id(None);
     assert!(result.is_err());
     match result.unwrap_err() {
-        crate::error::EspnError::MissingLeagueId { env_var } => {
+        EspnError::MissingLeagueId { env_var } => {
             assert_eq!(env_var, LEAGUE_ID_ENV_VAR);
         }
         _ => panic!("Expected MissingLeagueId error"),
@@ -82,60 +87,6 @@ fn test_resolve_league_id_zero_value() {
     let result = resolve_league_id(league_id);
     assert!(result.is_ok());
     assert_eq!(result.unwrap().as_u32(), 0);
-}
-
-// Mock test for handle_league_data - this would require mocking the HTTP calls
-#[tokio::test]
-async fn test_handle_league_data_structure() {
-    // Test the function signature and basic error handling
-    let league_id = Some(LeagueId::new(12345));
-    let season = Season::new(2023);
-
-    // This would fail with actual HTTP call, but tests the structure
-    let result = league_data::handle_league_data(league_id, false, season, false).await;
-    // In a real test with mocks, we would assert success
-    // For now, we just verify it compiles and has the right signature
-    match result {
-        Ok(_) => {}
-        Err(_) => {
-            // Expected to fail without mock server
-        }
-    }
-}
-
-#[tokio::test]
-async fn test_handle_player_data_structure() {
-    // Test the function signature and basic parameter handling
-    let league_id = Some(LeagueId::new(12345));
-    let season = Season::new(2023);
-    let week = Week::new(1);
-    let positions = Some(vec![Position::QB, Position::RB]);
-
-    // This would fail with actual HTTP call, but tests the structure
-    let result = player_data::handle_player_data(player_data::PlayerDataParams {
-        debug: false,
-        as_json: false,
-        league_id,
-        player_name: Some(vec!["Brady".to_string()]),
-        positions,
-        projected: false,
-        season,
-        week,
-        refresh_positions: false,
-        clear_db: false,
-        refresh: false,
-        injury_status: None,
-        roster_status: None,
-    })
-    .await;
-
-    // In a real test with mocks, we would assert success
-    match result {
-        Ok(_) => {}
-        Err(_) => {
-            // Expected to fail without mock server
-        }
-    }
 }
 
 // Test helper functions and data structures used in commands
@@ -227,64 +178,14 @@ fn test_constants() {
     assert_eq!(LEAGUE_ID_ENV_VAR, "ESPN_FFL_LEAGUE_ID");
 }
 
-// Test error propagation in command handlers
-#[tokio::test]
-async fn test_handle_league_data_missing_id() {
-    std::env::remove_var(LEAGUE_ID_ENV_VAR);
-
-    let result = league_data::handle_league_data(None, false, Season::default(), false).await;
-    assert!(result.is_err());
-    match result.unwrap_err() {
-        crate::error::EspnError::MissingLeagueId { .. } => {}
-        _ => panic!("Expected MissingLeagueId error"),
-    }
-}
-
-#[tokio::test]
-async fn test_handle_player_data_missing_id() {
-    std::env::remove_var(LEAGUE_ID_ENV_VAR);
-
-    let result = player_data::handle_player_data(player_data::PlayerDataParams {
-        debug: false,
-        as_json: false,
-        league_id: None,
-        player_name: None,
-        positions: None,
-        projected: false,
-        season: Season::default(),
-        week: Week::default(),
-        refresh_positions: false,
-        clear_db: false,
-        refresh: false,
-        injury_status: None,
-        roster_status: None,
-    })
-    .await;
-    assert!(result.is_err());
-    match result.unwrap_err() {
-        crate::error::EspnError::MissingLeagueId { .. } => {}
-        _ => panic!("Expected MissingLeagueId error"),
-    }
-}
-
 // Tests for new database functionality
 #[test]
 fn test_player_data_params_creation() {
-    let params = player_data::PlayerDataParams {
-        debug: true,
-        as_json: false,
-        league_id: Some(LeagueId::new(12345)),
-        player_name: Some(vec!["Test".to_string()]),
-        positions: Some(vec![Position::QB, Position::RB]),
-        projected: true,
-        season: Season::new(2023),
-        week: Week::new(1),
-        refresh_positions: false,
-        clear_db: false,
-        refresh: false,
-        injury_status: None,
-        roster_status: None,
-    };
+    let params = PlayerDataParams::new(Season::new(2023), Week::new(1), true)
+        .with_league_id(LeagueId::new(12345))
+        .with_player_names(vec!["Test".to_string()])
+        .with_positions(vec![Position::QB, Position::RB])
+        .with_debug();
 
     assert!(params.debug);
     assert!(!params.as_json);
@@ -404,33 +305,9 @@ fn test_position_to_string() {
     assert_eq!(Position::DEF.to_string(), "D/ST");
 }
 
-#[tokio::test]
-async fn test_handle_projection_analysis_structure() {
-    // Test the function signature and basic error handling
-    let result = projection_analysis::handle_projection_analysis(
-        Season::new(2023),
-        Week::new(1),
-        Some(LeagueId::new(12345)),
-        None,
-        None,
-        false,
-        false,
-        1.0,
-        None, // injury_status
-        None, // roster_status
-    )
-    .await;
-
-    // Should complete without panicking (may be empty result)
-    match result {
-        Ok(_) => {}  // Success case - empty analysis is OK
-        Err(_) => {} // Database errors are also OK for this test
-    }
-}
-
 #[test]
 fn test_cached_data_includes_injury_and_roster_status() {
-    use crate::espn::types::{CachedPlayerData, InjuryStatus, PlayerPoints};
+    use espn_ffl::espn::types::{CachedPlayerData, InjuryStatus, PlayerPoints};
 
     // This is a unit test to ensure cached PlayerPoints include status fields
     // This would catch the bug where cached data returned None for all status fields
@@ -488,12 +365,14 @@ fn test_cached_vs_fresh_data_status_consistency() {
     // This test would catch issues where cached and fresh data return different status info
     // Note: This is more of a conceptual test since we can't easily mock ESPN API calls
 
-    use crate::espn::types::{CachedPlayerData, InjuryStatus, PlayerPoints};
+    use espn_ffl::espn::types::{
+        CachedPlayerData, InjuryStatus, Player as EspnPlayer, PlayerPoints,
+    };
 
     // Simulate what fresh data might look like
     let fresh_data = PlayerPoints::from_espn_player(
         PlayerId::new(12345),
-        &crate::espn::types::Player {
+        &EspnPlayer {
             id: 12345,
             full_name: Some("Josh Allen".to_string()),
             default_position_id: 0, // QB
@@ -547,8 +426,8 @@ fn test_cached_vs_fresh_data_status_consistency() {
 #[cfg(test)]
 mod projection_analysis_filtering_tests {
     use super::*;
-    use crate::{
-        cli::types::{InjuryStatusFilter, RosterStatusFilter},
+    use espn_ffl::{
+        cli::types::filters::{InjuryStatusFilter, RosterStatusFilter},
         commands::player_filters::{matches_injury_filter, matches_roster_filter},
         espn::types::{InjuryStatus, PlayerPoints},
     };

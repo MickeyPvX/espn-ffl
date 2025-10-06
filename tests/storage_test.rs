@@ -1,18 +1,9 @@
 //! Unit tests for storage functionality
 
-use super::*;
-use crate::cli::types::{PlayerId, Season, Week};
+use espn_ffl::{storage::*, PlayerId, Season, Week};
 
 fn create_test_db() -> PlayerDatabase {
-    // Create in-memory database for testing
-    let conn = rusqlite::Connection::open_in_memory().unwrap();
-
-    // Enable foreign keys for testing
-    conn.execute("PRAGMA foreign_keys = ON", []).unwrap();
-
-    let mut db = PlayerDatabase { conn };
-    db.initialize_schema().unwrap();
-    db
+    PlayerDatabase::new_in_memory().unwrap()
 }
 
 fn create_test_db_with_player() -> PlayerDatabase {
@@ -380,7 +371,7 @@ fn test_clear_all_data() {
 
 #[test]
 fn test_get_cached_player_data_with_injury_and_roster_status() {
-    use crate::espn::types::InjuryStatus;
+    use espn_ffl::espn::types::InjuryStatus;
 
     let mut db = create_test_db_with_player();
 

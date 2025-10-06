@@ -1,10 +1,8 @@
 //! League data command implementation
 
 use crate::{
-    cli::types::{LeagueId, Season},
-    core::league_settings_path,
-    espn::cache_settings::load_or_fetch_league_settings,
-    Result,
+    core::league_settings_path, espn::cache_settings::load_or_fetch_league_settings, LeagueId,
+    Result, Season,
 };
 
 use super::resolve_league_id;

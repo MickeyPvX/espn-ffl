@@ -1,7 +1,10 @@
 //! Projection analysis command implementation
 
 use crate::{
-    cli::types::{InjuryStatusFilter, LeagueId, Position, RosterStatusFilter, Season, Week},
+    cli::types::{
+        filters::{InjuryStatusFilter, RosterStatusFilter},
+        position::Position,
+    },
     espn::{
         cache_settings::load_or_fetch_league_settings,
         compute::{build_scoring_index, compute_points_for_week, select_weekly_stats},
@@ -9,13 +12,14 @@ use crate::{
         types::PlayerPoints,
     },
     storage::PlayerDatabase,
-    Result,
+    LeagueId, Result, Season, Week,
 };
 
 use super::{
     player_filters::{filter_and_convert_players, matches_injury_filter, matches_roster_filter},
     resolve_league_id,
 };
+use rayon::prelude::*;
 
 /// Handle the projection analysis command (simplified version)
 #[allow(clippy::too_many_arguments)]
@@ -86,33 +90,38 @@ pub async fn handle_projection_analysis(
         );
     }
 
-    let mut projected_points_data = Vec::new();
-
-    // Calculate ESPN projections for each player
-    for filtered_player in
+    // Calculate ESPN projections for each player in parallel
+    let projected_points_data: Vec<(crate::PlayerId, f64)> =
         filter_and_convert_players(players, player_names.clone(), positions.clone())
-    {
-        let player = filtered_player.original_player;
-        let player_id = filtered_player.player_id;
+            .into_par_iter()
+            .filter_map(|filtered_player| {
+                let player = filtered_player.original_player;
+                let player_id = filtered_player.player_id;
 
-        if let Some(weekly_stats) = select_weekly_stats(
-            &serde_json::to_value(&player)?,
-            season.as_u16(),
-            week.as_u16(),
-            1, // stat_source = 1 for projected
-        ) {
-            let position_id = if player.default_position_id < 0 {
-                0u8
-            } else {
-                player.default_position_id as u8
-            };
-            let espn_projection =
-                compute_points_for_week(weekly_stats, position_id, &scoring_index);
+                if let Ok(player_value) = serde_json::to_value(&player) {
+                    if let Some(weekly_stats) = select_weekly_stats(
+                        &player_value,
+                        season.as_u16(),
+                        week.as_u16(),
+                        1, // stat_source = 1 for projected
+                    ) {
+                        let position_id = if player.default_position_id < 0 {
+                            0u8
+                        } else {
+                            player.default_position_id as u8
+                        };
+                        let espn_projection =
+                            compute_points_for_week(weekly_stats, position_id, &scoring_index);
 
-            // Include all projections regardless of value (negative points are valid for D/ST)
-            projected_points_data.push((player_id, espn_projection));
-        }
-    }
+                        Some((player_id, espn_projection))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
+            .collect();
 
     // Get performance estimates using historical data
     if !as_json {
@@ -138,9 +147,9 @@ pub async fn handle_projection_analysis(
             println!("Getting current injury/roster status for filtering...");
         }
 
-        // Create PlayerPoints objects for all estimates to get current status
+        // Create PlayerPoints objects for all estimates to get current status in parallel
         let mut temp_player_points: Vec<PlayerPoints> = estimates
-            .iter()
+            .par_iter()
             .map(|estimate| PlayerPoints::from_estimate(estimate, week))
             .collect();
 
@@ -160,14 +169,14 @@ pub async fn handle_projection_analysis(
         }
     }
 
-    // Apply filters (position, injury status, roster status) and sort by estimated points (descending)
+    // Apply filters in parallel (position, injury status, roster status)
     let filtered_estimates: Vec<_> = estimates
-        .into_iter()
+        .into_par_iter()
         .filter(|estimate| {
             // Apply position filter
             if let Some(pos_filters) = &positions {
                 let position_matches = pos_filters.iter().any(|p| {
-                    p.get_eligible_positions()
+                    p.get_all_position_ids()
                         .iter()
                         .any(|eligible_pos| estimate.position == eligible_pos.to_string())
                 });

@@ -1,7 +1,7 @@
 //! Analysis operations for projection accuracy and performance estimation
 
 use super::{models::*, schema::PlayerDatabase};
-use crate::cli::types::{PlayerId, Season, Week};
+use crate::{PlayerId, Season, Week};
 use anyhow::Result;
 use rusqlite::params;
 

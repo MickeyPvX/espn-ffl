@@ -3,10 +3,7 @@
 //! This command efficiently updates all player data (both actual and projected)
 //! for multiple weeks by reusing the existing player-data command logic.
 
-use crate::{
-    cli::types::{LeagueId, Season, Week},
-    Result,
-};
+use crate::{LeagueId, Result, Season, Week};
 
 use super::{
     player_data::{handle_player_data, PlayerDataParams},

@@ -1,15 +1,16 @@
-use reqwest::{
-    header::{HeaderMap, HeaderValue, ACCEPT},
-    Client,
-};
+use reqwest::{header::HeaderValue, Client};
 use serde_json::Value;
 use std::sync::LazyLock;
 
 use crate::{
-    cli::types::{InjuryStatusFilter, LeagueId, Position, RosterStatusFilter, Season, Week},
-    core::{build_players_filter, maybe_cookie_header_map, IntoHeaderValue},
-    Result,
+    cli::types::{
+        filters::{InjuryStatusFilter, RosterStatusFilter},
+        position::Position,
+    },
+    core::{build_players_filter, IntoHeaderValue},
+    LeagueId, Result, Season, Week,
 };
+use reqwest::header::{HeaderMap, ACCEPT, COOKIE};
 
 #[cfg(test)]
 mod tests;
@@ -17,17 +18,63 @@ mod tests;
 /// Base path for ESPN Fantasy Football v3 API.
 pub const FFL_BASE_URL: &str = "https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl";
 
-/// Parameters for player data retrieval to avoid too many function arguments.
+/// Parameters for player data retrieval.
 #[derive(Debug)]
 pub struct PlayerDataRequest {
-    pub debug: bool,
     pub league_id: LeagueId,
-    pub player_names: Option<Vec<String>>,
-    pub positions: Option<Vec<Position>>,
     pub season: Season,
     pub week: Week,
+    pub debug: bool,
+    pub player_names: Option<Vec<String>>,
+    pub positions: Option<Vec<Position>>,
     pub injury_status_filter: Option<InjuryStatusFilter>,
     pub roster_status_filter: Option<RosterStatusFilter>,
+}
+
+impl PlayerDataRequest {
+    /// Create new request with required fields.
+    pub fn new(league_id: LeagueId, season: Season, week: Week) -> Self {
+        Self {
+            league_id,
+            season,
+            week,
+            debug: false,
+            player_names: None,
+            positions: None,
+            injury_status_filter: None,
+            roster_status_filter: None,
+        }
+    }
+
+    /// Enable debug output.
+    pub fn with_debug(mut self) -> Self {
+        self.debug = true;
+        self
+    }
+
+    /// Filter by specific player names.
+    pub fn with_player_names(mut self, names: Vec<String>) -> Self {
+        self.player_names = Some(names);
+        self
+    }
+
+    /// Filter by positions.
+    pub fn with_positions(mut self, positions: Vec<Position>) -> Self {
+        self.positions = Some(positions);
+        self
+    }
+
+    /// Filter by injury status.
+    pub fn with_injury_filter(mut self, filter: InjuryStatusFilter) -> Self {
+        self.injury_status_filter = Some(filter);
+        self
+    }
+
+    /// Filter by roster status.
+    pub fn with_roster_filter(mut self, filter: RosterStatusFilter) -> Self {
+        self.roster_status_filter = Some(filter);
+        self
+    }
 }
 
 static CLIENT: LazyLock<Client> = LazyLock::new(|| {
@@ -37,15 +84,22 @@ static CLIENT: LazyLock<Client> = LazyLock::new(|| {
         .expect("Failed to build http client")
 });
 
-fn get_common_headers() -> Result<HeaderMap> {
-    // Try to get headers with cookies if present, otherwise build basic headers
-    if let Some(headers) = maybe_cookie_header_map()? {
-        Ok(headers)
-    } else {
-        let mut headers = HeaderMap::new();
-        headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
-        Ok(headers)
+/// Build HTTP headers for ESPN API requests.
+///
+/// Always includes Accept: application/json header.
+/// Includes cookies if ESPN_SWID and ESPN_S2 environment variables are set.
+fn build_espn_headers() -> Result<HeaderMap> {
+    let mut headers = HeaderMap::new();
+    headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
+
+    let swid = std::env::var("ESPN_SWID").ok();
+    let s2 = std::env::var("ESPN_S2").ok();
+    if let (Some(swid), Some(s2)) = (swid, s2) {
+        let cookie = format!("SWID={}; espn_s2={}", swid, s2);
+        headers.insert(COOKIE, HeaderValue::from_str(&cookie)?);
     }
+
+    Ok(headers)
 }
 
 pub async fn get_league_settings(league_id: LeagueId, season: Season) -> Result<Value> {
@@ -55,7 +109,7 @@ pub async fn get_league_settings(league_id: LeagueId, season: Season) -> Result<
         league_id.as_u32()
     );
     let params = [("view", "mSettings")];
-    let headers = get_common_headers()?;
+    let headers = build_espn_headers()?;
 
     // tarpaulin::skip - HTTP client call
     let res = CLIENT
@@ -86,7 +140,7 @@ pub async fn get_player_data(request: PlayerDataRequest) -> Result<Value> {
         request.roster_status_filter.as_ref(),
     );
 
-    let mut headers = get_common_headers()?;
+    let mut headers = build_espn_headers()?;
     headers.insert("x-fantasy-filter", players_filter.to_header_value()?);
 
     // URL and query params
@@ -149,7 +203,7 @@ pub async fn get_league_rosters(
         params.push(("scoringPeriodId".to_string(), w.as_u16().to_string()));
     }
 
-    let headers = get_common_headers()?;
+    let headers = build_espn_headers()?;
 
     if debug {
         eprintln!("URL => {}", url);
@@ -183,7 +237,7 @@ pub async fn get_player_info(
         ("scoringPeriodId", week.as_u16().to_string()),
     ];
 
-    let headers = get_common_headers()?;
+    let headers = build_espn_headers()?;
 
     if debug {
         eprintln!("URL => {}", url);
@@ -218,7 +272,7 @@ pub async fn get_player_data_with_view(
         ("scoringPeriodId", week.as_u16().to_string()),
     ];
 
-    let headers = get_common_headers()?;
+    let headers = build_espn_headers()?;
 
     if debug {
         eprintln!("URL => {}", url);
@@ -302,7 +356,7 @@ pub async fn get_player_data_with_custom_filter(
         ("scoringPeriodId", week.as_u16().to_string()),
     ];
 
-    let mut headers = get_common_headers()?;
+    let mut headers = build_espn_headers()?;
     headers.insert(
         "x-fantasy-filter",
         HeaderValue::from_str(custom_filter_json)?,

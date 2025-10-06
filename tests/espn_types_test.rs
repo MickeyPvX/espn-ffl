@@ -1,6 +1,6 @@
 //! Unit tests for ESPN types and data structures
 
-use super::*;
+use espn_ffl::{espn::types::*, PlayerId, Week};
 use serde_json::json;
 use std::collections::BTreeMap;
 
@@ -215,13 +215,22 @@ mod types_tests {
 
     #[test]
     fn test_player_points_serialization() {
-        let player_points = PlayerPoints::test_minimal(
+        let player = Player {
+            id: 456789,
+            full_name: Some("Patrick Mahomes".to_string()),
+            default_position_id: 0,
+            stats: vec![],
+            active: None,
+            injured: None,
+            injury_status: None,
+        };
+        let player_points = PlayerPoints::from_espn_player(
             PlayerId::new(456789),
-            "Patrick Mahomes".to_string(),
+            &player,
             "QB".to_string(),
+            28.75,
             Week::new(8),
             true,
-            28.75,
         );
 
         let json = serde_json::to_value(&player_points).unwrap();
@@ -234,7 +243,7 @@ mod types_tests {
 
     #[test]
     fn test_player_points_from_cached_data_with_status() {
-        use crate::cli::types::{PlayerId, Week};
+        use espn_ffl::{PlayerId, Week};
 
         let player_points = PlayerPoints::from_cached_data(CachedPlayerData {
             player_id: PlayerId::new(12345),
@@ -268,7 +277,7 @@ mod types_tests {
 
     #[test]
     fn test_player_points_from_cached_data_with_injured_status() {
-        use crate::cli::types::{PlayerId, Week};
+        use espn_ffl::{PlayerId, Week};
 
         // Test with injured player and no roster info
         let player_points = PlayerPoints::from_cached_data(CachedPlayerData {

@@ -12,9 +12,6 @@ pub mod models;
 pub mod queries;
 pub mod schema;
 
-#[cfg(test)]
-mod tests;
-
 // Re-export the main types and database struct for easy access
 pub use models::*;
 pub use schema::PlayerDatabase;
