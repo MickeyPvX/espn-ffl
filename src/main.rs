@@ -34,6 +34,7 @@ async fn main() -> Result<()> {
             clear_db,
             refresh,
         } => {
+            let fantasy_team_filter = filters.get_fantasy_team_filter();
             handle_player_data(PlayerDataParams {
                 debug,
                 as_json: json,
@@ -48,6 +49,7 @@ async fn main() -> Result<()> {
                 refresh,
                 injury_status: filters.injury_status,
                 roster_status: filters.roster_status,
+                fantasy_team_filter,
             })
             .await?
         }
@@ -60,6 +62,7 @@ async fn main() -> Result<()> {
         } => {
             // Default to 1.0 (original conservative approach) if not specified
             let bias_factor = bias_strength.unwrap_or(1.0);
+            let fantasy_team_filter = filters.get_fantasy_team_filter();
             handle_projection_analysis(
                 filters.season,
                 filters.week,
@@ -71,6 +74,7 @@ async fn main() -> Result<()> {
                 bias_factor,
                 filters.injury_status,
                 filters.roster_status,
+                fantasy_team_filter,
             )
             .await?
         }

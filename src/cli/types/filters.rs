@@ -69,3 +69,24 @@ impl fmt::Display for RosterStatusFilter {
         write!(f, "{}", s)
     }
 }
+
+/// Filter for fantasy team in CLI commands.
+///
+/// Allows filtering players by the fantasy team they are currently on.
+/// Supports both team name (partial matching) and exact team ID matching.
+#[derive(Debug, Clone)]
+pub enum FantasyTeamFilter {
+    /// Filter by team name (supports partial matching)
+    Name(String),
+    /// Filter by exact team ID
+    Id(u32),
+}
+
+impl fmt::Display for FantasyTeamFilter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            FantasyTeamFilter::Name(name) => write!(f, "Team: {}", name),
+            FantasyTeamFilter::Id(id) => write!(f, "Team ID: {}", id),
+        }
+    }
+}

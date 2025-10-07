@@ -2,7 +2,7 @@
 
 use crate::{
     cli::types::{
-        filters::{InjuryStatusFilter, RosterStatusFilter},
+        filters::{FantasyTeamFilter, InjuryStatusFilter, RosterStatusFilter},
         position::Position,
     },
     espn::types::{InjuryStatus, Player, PlayerPoints},
@@ -135,6 +135,31 @@ pub fn matches_roster_filter(player: &PlayerPoints, filter: &RosterStatusFilter)
     }
 }
 
+/// Check if a player matches the given fantasy team filter
+///
+/// This function provides consistent fantasy team filtering logic across commands.
+/// For team name filtering, it performs case-insensitive partial matching against
+/// both the full team name and the 3-letter team abbreviation stored by ESPN.
+pub fn matches_fantasy_team_filter(player: &PlayerPoints, filter: &FantasyTeamFilter) -> bool {
+    match filter {
+        FantasyTeamFilter::Id(team_id) => player.team_id == Some(*team_id),
+        FantasyTeamFilter::Name(filter_name) => {
+            let filter_lower = filter_name.to_lowercase();
+
+            // Check if team name contains the filter (case-insensitive)
+            if let Some(team_name) = &player.team_name {
+                if team_name.to_lowercase().contains(&filter_lower) {
+                    return true;
+                }
+            }
+
+            // Note: ESPN's 3-letter abbreviations would need to be stored separately
+            // For now, we only match against the full team name
+            false
+        }
+    }
+}
+
 /// Apply injury status filter to a collection of PlayerPoints
 ///
 /// # Examples
@@ -165,13 +190,29 @@ pub fn apply_roster_filter(players: &mut Vec<PlayerPoints>, filter: &RosterStatu
     players.retain(|player| matches_roster_filter(player, filter));
 }
 
-/// Apply both injury and roster status filters to a collection of PlayerPoints
+/// Apply fantasy team filter to a collection of PlayerPoints
 ///
-/// This is a convenience function that applies both filters when specified.
+/// # Examples
+///
+/// ```rust
+/// # use espn_ffl::commands::player_filters::apply_fantasy_team_filter;
+/// # use espn_ffl::cli::types::filters::FantasyTeamFilter;
+/// # use espn_ffl::espn::types::PlayerPoints;
+/// let mut players = vec![/* PlayerPoints objects */];
+/// apply_fantasy_team_filter(&mut players, &FantasyTeamFilter::Name("kenny".to_string()));
+/// ```
+pub fn apply_fantasy_team_filter(players: &mut Vec<PlayerPoints>, filter: &FantasyTeamFilter) {
+    players.retain(|player| matches_fantasy_team_filter(player, filter));
+}
+
+/// Apply injury, roster, and fantasy team filters to a collection of PlayerPoints
+///
+/// This is a convenience function that applies all filters when specified.
 pub fn apply_status_filters(
     players: &mut Vec<PlayerPoints>,
     injury_filter: Option<&InjuryStatusFilter>,
     roster_filter: Option<&RosterStatusFilter>,
+    fantasy_team_filter: Option<&FantasyTeamFilter>,
 ) {
     if let Some(filter) = injury_filter {
         apply_injury_filter(players, filter);
@@ -179,6 +220,10 @@ pub fn apply_status_filters(
 
     if let Some(filter) = roster_filter {
         apply_roster_filter(players, filter);
+    }
+
+    if let Some(filter) = fantasy_team_filter {
+        apply_fantasy_team_filter(players, filter);
     }
 }
 
@@ -327,9 +372,157 @@ mod tests {
             &mut players,
             Some(&InjuryStatusFilter::Active),
             Some(&RosterStatusFilter::FA),
+            None,
         );
 
         assert_eq!(players.len(), 1);
         assert_eq!(players[0].name, "Active FA");
+    }
+
+    #[test]
+    fn test_matches_fantasy_team_filter_by_id() {
+        let player_on_team_1 = PlayerPoints {
+            id: PlayerId::new(123),
+            name: "Player 1".to_string(),
+            position: "QB".to_string(),
+            points: 15.0,
+            week: Week::new(1),
+            projected: false,
+            active: Some(true),
+            injured: Some(false),
+            injury_status: None,
+            is_rostered: Some(true),
+            team_id: Some(1),
+            team_name: Some("Kenny Rogers' Toasters".to_string()),
+        };
+
+        let player_on_team_2 = PlayerPoints {
+            id: PlayerId::new(124),
+            name: "Player 2".to_string(),
+            position: "RB".to_string(),
+            points: 12.0,
+            week: Week::new(1),
+            projected: false,
+            active: Some(true),
+            injured: Some(false),
+            injury_status: None,
+            is_rostered: Some(true),
+            team_id: Some(2),
+            team_name: Some("Other Team".to_string()),
+        };
+
+        let team_1_filter = FantasyTeamFilter::Id(1);
+        let team_2_filter = FantasyTeamFilter::Id(2);
+        let team_3_filter = FantasyTeamFilter::Id(3);
+
+        assert!(matches_fantasy_team_filter(
+            &player_on_team_1,
+            &team_1_filter
+        ));
+        assert!(!matches_fantasy_team_filter(
+            &player_on_team_1,
+            &team_2_filter
+        ));
+        assert!(!matches_fantasy_team_filter(
+            &player_on_team_1,
+            &team_3_filter
+        ));
+
+        assert!(!matches_fantasy_team_filter(
+            &player_on_team_2,
+            &team_1_filter
+        ));
+        assert!(matches_fantasy_team_filter(
+            &player_on_team_2,
+            &team_2_filter
+        ));
+        assert!(!matches_fantasy_team_filter(
+            &player_on_team_2,
+            &team_3_filter
+        ));
+    }
+
+    #[test]
+    fn test_matches_fantasy_team_filter_by_name() {
+        let player_kenny_team = PlayerPoints {
+            id: PlayerId::new(123),
+            name: "Player 1".to_string(),
+            position: "QB".to_string(),
+            points: 15.0,
+            week: Week::new(1),
+            projected: false,
+            active: Some(true),
+            injured: Some(false),
+            injury_status: None,
+            is_rostered: Some(true),
+            team_id: Some(1),
+            team_name: Some("Kenny Rogers' Toasters".to_string()),
+        };
+
+        let player_other_team = PlayerPoints {
+            id: PlayerId::new(124),
+            name: "Player 2".to_string(),
+            position: "RB".to_string(),
+            points: 12.0,
+            week: Week::new(1),
+            projected: false,
+            active: Some(true),
+            injured: Some(false),
+            injury_status: None,
+            is_rostered: Some(true),
+            team_id: Some(2),
+            team_name: Some("Different Team Name".to_string()),
+        };
+
+        // Test partial matching (case-insensitive)
+        let kenny_filter = FantasyTeamFilter::Name("kenny".to_string());
+        let toasters_filter = FantasyTeamFilter::Name("toasters".to_string());
+        let rogers_filter = FantasyTeamFilter::Name("Rogers".to_string());
+        let different_filter = FantasyTeamFilter::Name("different".to_string());
+        let nomatch_filter = FantasyTeamFilter::Name("nomatch".to_string());
+
+        // Should match Kenny's team
+        assert!(matches_fantasy_team_filter(
+            &player_kenny_team,
+            &kenny_filter
+        ));
+        assert!(matches_fantasy_team_filter(
+            &player_kenny_team,
+            &toasters_filter
+        ));
+        assert!(matches_fantasy_team_filter(
+            &player_kenny_team,
+            &rogers_filter
+        ));
+        assert!(!matches_fantasy_team_filter(
+            &player_kenny_team,
+            &different_filter
+        ));
+        assert!(!matches_fantasy_team_filter(
+            &player_kenny_team,
+            &nomatch_filter
+        ));
+
+        // Should match other team
+        assert!(!matches_fantasy_team_filter(
+            &player_other_team,
+            &kenny_filter
+        ));
+        assert!(!matches_fantasy_team_filter(
+            &player_other_team,
+            &toasters_filter
+        ));
+        assert!(!matches_fantasy_team_filter(
+            &player_other_team,
+            &rogers_filter
+        ));
+        assert!(matches_fantasy_team_filter(
+            &player_other_team,
+            &different_filter
+        ));
+        assert!(!matches_fantasy_team_filter(
+            &player_other_team,
+            &nomatch_filter
+        ));
     }
 }

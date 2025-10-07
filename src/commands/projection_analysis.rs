@@ -2,13 +2,16 @@
 
 use crate::{
     cli::types::{
-        filters::{InjuryStatusFilter, RosterStatusFilter},
+        filters::{FantasyTeamFilter, InjuryStatusFilter, RosterStatusFilter},
         position::Position,
     },
     espn::{
         cache_settings::load_or_fetch_league_settings,
         compute::{build_scoring_index, compute_points_for_week, select_weekly_stats},
-        http::{get_player_data, update_player_points_with_roster_info, PlayerDataRequest},
+        http::{
+            fetch_current_roster_data, get_player_data, update_player_points_with_roster_data,
+            PlayerDataRequest,
+        },
         types::PlayerPoints,
     },
     storage::PlayerDatabase,
@@ -16,7 +19,10 @@ use crate::{
 };
 
 use super::{
-    player_filters::{filter_and_convert_players, matches_injury_filter, matches_roster_filter},
+    player_filters::{
+        filter_and_convert_players, matches_fantasy_team_filter, matches_injury_filter,
+        matches_roster_filter,
+    },
     resolve_league_id,
 };
 use rayon::prelude::*;
@@ -34,12 +40,16 @@ pub async fn handle_projection_analysis(
     bias_strength: f64,
     injury_status: Option<InjuryStatusFilter>,
     roster_status: Option<RosterStatusFilter>,
+    fantasy_team_filter: Option<FantasyTeamFilter>,
 ) -> Result<()> {
     let league_id = resolve_league_id(league_id)?;
     if !as_json {
         println!("Connecting to database...");
     }
     let db = PlayerDatabase::new()?;
+
+    // Fetch current roster data once for efficient reuse
+    let roster_data = fetch_current_roster_data(league_id, season, !as_json).await?;
 
     // Check if we already have projected data for this week (without filters)
     let skip_api_call = !refresh
@@ -139,12 +149,12 @@ pub async fn handle_projection_analysis(
         return Ok(());
     }
 
-    // Get current injury/roster status for filtering if needed
+    // Get current injury/roster status and team data for filtering if needed
     let mut current_status_map = std::collections::HashMap::new();
 
-    if injury_status.is_some() || roster_status.is_some() {
+    if injury_status.is_some() || roster_status.is_some() || fantasy_team_filter.is_some() {
         if !as_json {
-            println!("Getting current injury/roster status for filtering...");
+            println!("Getting current player status and team data for filtering...");
         }
 
         // Create PlayerPoints objects for all estimates to get current status in parallel
@@ -153,15 +163,12 @@ pub async fn handle_projection_analysis(
             .map(|estimate| PlayerPoints::from_estimate(estimate, week))
             .collect();
 
-        // Get current injury/roster status from ESPN API
-        update_player_points_with_roster_info(
+        // Get current injury/roster status and team data using pre-fetched data
+        update_player_points_with_roster_data(
             &mut temp_player_points,
-            league_id,
-            season,
-            week,
+            roster_data.as_ref(),
             false, // not verbose
-        )
-        .await?;
+        );
 
         // Build status map for filtering
         for player in temp_player_points {
@@ -169,7 +176,7 @@ pub async fn handle_projection_analysis(
         }
     }
 
-    // Apply filters in parallel (position, injury status, roster status)
+    // Apply filters in parallel (position, injury status, roster status, team)
     let filtered_estimates: Vec<_> = estimates
         .into_par_iter()
         .filter(|estimate| {
@@ -205,7 +212,17 @@ pub async fn handle_projection_analysis(
                         return false;
                     }
                 }
-            } else if injury_status.is_some() || roster_status.is_some() {
+
+                // Apply fantasy team filter if specified
+                if let Some(team_filter) = &fantasy_team_filter {
+                    if !matches_fantasy_team_filter(player_status, team_filter) {
+                        return false;
+                    }
+                }
+            } else if injury_status.is_some()
+                || roster_status.is_some()
+                || fantasy_team_filter.is_some()
+            {
                 // Filters specified but no status info available - exclude this player
                 return false;
             }
