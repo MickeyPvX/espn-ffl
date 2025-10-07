@@ -61,6 +61,7 @@ pub async fn handle_update_all_data(
             week,
             injury_status: None,
             roster_status: None,
+            fantasy_team_filter: None,
             debug: false,
             as_json: false,
             refresh: true, // Force fresh data
@@ -82,6 +83,7 @@ pub async fn handle_update_all_data(
             week,
             injury_status: None,
             roster_status: None,
+            fantasy_team_filter: None,
             debug: false,
             as_json: false,
             refresh: true, // Force fresh data

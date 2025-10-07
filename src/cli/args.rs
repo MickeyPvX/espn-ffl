@@ -1,7 +1,7 @@
 //! CLI argument definitions and parsing structures.
 
 use super::types::{
-    filters::{InjuryStatusFilter, RosterStatusFilter},
+    filters::{FantasyTeamFilter, InjuryStatusFilter, RosterStatusFilter},
     ids::LeagueId,
     position::Position,
     time::{Season, Week},
@@ -38,6 +38,25 @@ pub struct CommonFilters {
     /// Filter by roster status.
     #[clap(long)]
     pub roster_status: Option<RosterStatusFilter>,
+
+    /// Filter by fantasy team name (partial matching).
+    #[clap(long)]
+    pub team: Option<String>,
+
+    /// Filter by exact fantasy team ID.
+    #[clap(long)]
+    pub team_id: Option<u32>,
+}
+
+impl CommonFilters {
+    /// Get the fantasy team filter if specified
+    pub fn get_fantasy_team_filter(&self) -> Option<FantasyTeamFilter> {
+        self.team
+            .as_ref()
+            .map(|team_name| FantasyTeamFilter::Name(team_name.clone()))
+            .or_else(|| self.team_id.map(FantasyTeamFilter::Id))
+            .or(None)
+    }
 }
 
 #[derive(Debug, Parser)]

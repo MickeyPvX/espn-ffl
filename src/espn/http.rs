@@ -7,7 +7,11 @@ use crate::{
         filters::{InjuryStatusFilter, RosterStatusFilter},
         position::Position,
     },
-    core::{build_players_filter, IntoHeaderValue},
+    core::{
+        build_players_filter,
+        cache::{HttpPlayerDataCacheKey, LeagueSettingsCacheKey, RosterDataCacheKey, GLOBAL_CACHE},
+        IntoHeaderValue,
+    },
     LeagueId, Result, Season, Week,
 };
 use reqwest::header::{HeaderMap, ACCEPT, COOKIE};
@@ -103,6 +107,14 @@ fn build_espn_headers() -> Result<HeaderMap> {
 }
 
 pub async fn get_league_settings(league_id: LeagueId, season: Season) -> Result<Value> {
+    // Create cache key
+    let cache_key = LeagueSettingsCacheKey { league_id, season };
+
+    // Check cache first
+    if let Some(cached_result) = GLOBAL_CACHE.league_settings.get(&cache_key) {
+        return Ok(cached_result);
+    }
+
     let url = format!(
         "{FFL_BASE_URL}/seasons/{}/segments/0/leagues/{}",
         season.as_u16(),
@@ -122,10 +134,31 @@ pub async fn get_league_settings(league_id: LeagueId, season: Season) -> Result<
         .json::<Value>()
         .await?;
 
+    // Cache the result
+    GLOBAL_CACHE.league_settings.put(cache_key, res.clone());
+
     Ok(res)
 }
 
 pub async fn get_player_data(request: PlayerDataRequest) -> Result<Value> {
+    // Create cache key - note: we need to determine if this is projected or not
+    // For now, we'll assume this is actual data (projected is handled separately)
+    let cache_key = HttpPlayerDataCacheKey {
+        league_id: request.league_id,
+        season: request.season,
+        week: request.week,
+        player_names: request.player_names.clone(),
+        positions: request.positions.clone(),
+        projected: false, // This function gets actual data
+    };
+
+    // Check cache first (but skip if debug mode to see the actual request)
+    if !request.debug {
+        if let Some(cached_result) = GLOBAL_CACHE.http_player_data.get(&cache_key) {
+            return Ok(cached_result);
+        }
+    }
+
     // Build the filters from cli args
     let slots: Option<Vec<u8>> = request.positions.map(|ps| {
         ps.into_iter()
@@ -178,6 +211,13 @@ pub async fn get_player_data(request: PlayerDataRequest) -> Result<Value> {
         .json::<Value>()
         .await?;
 
+    // Cache the result (but not in debug mode)
+    if !request.debug {
+        GLOBAL_CACHE
+            .http_player_data
+            .put(cache_key, players_val.clone());
+    }
+
     Ok(players_val)
 }
 
@@ -188,6 +228,19 @@ pub async fn get_league_rosters(
     season: Season,
     week: Option<Week>,
 ) -> Result<Value> {
+    // Create cache key
+    let cache_key = RosterDataCacheKey {
+        league_id,
+        season,
+        week,
+    };
+
+    // Check cache first (but skip if debug mode to see the actual request)
+    if !debug {
+        if let Some(cached_result) = GLOBAL_CACHE.roster_data.get(&cache_key) {
+            return Ok(cached_result);
+        }
+    }
     let url = format!(
         "{FFL_BASE_URL}/seasons/{}/segments/0/leagues/{}",
         season.as_u16(),
@@ -219,6 +272,11 @@ pub async fn get_league_rosters(
         .error_for_status()?
         .json::<Value>()
         .await?;
+
+    // Cache the result (but not in debug mode)
+    if !debug {
+        GLOBAL_CACHE.roster_data.put(cache_key, res.clone());
+    }
 
     Ok(res)
 }
@@ -305,39 +363,77 @@ pub async fn get_league_roster_data(
 }
 
 /// Fetch roster data and update PlayerPoints with roster information
-pub async fn update_player_points_with_roster_info(
-    player_points: &mut [crate::espn::types::PlayerPoints],
+/// Fetch current league roster data once for efficient reuse
+///
+/// This function fetches the most recent roster information, which is what we need
+/// for determining current team affiliations. Unlike historical data, current roster
+/// information doesn't change based on the week being queried.
+pub async fn fetch_current_roster_data(
     league_id: LeagueId,
     season: Season,
-    week: Week,
     verbose: bool,
-) -> Result<()> {
-    if player_points.is_empty() {
-        return Ok(());
-    }
-
+) -> Result<Option<crate::espn::types::LeagueData>> {
     if verbose {
         println!("Checking league roster status...");
     }
 
-    match get_league_roster_data(false, league_id, season, Some(week)).await {
+    match get_league_roster_data(false, league_id, season, None).await {
         Ok(league_data) => {
-            league_data.update_player_points_with_roster(player_points);
             if verbose {
-                println!("✓ Roster status updated");
+                println!("✓ Roster status fetched");
             }
+            Ok(Some(league_data))
         }
         Err(e) => {
             if verbose {
                 println!("⚠ Could not fetch roster data: {}", e);
             }
-            // Set all players as unknown roster status
-            for player in player_points.iter_mut() {
-                player.is_rostered = None;
-            }
+            Ok(None)
         }
     }
+}
 
+/// Update player points with pre-fetched roster information
+///
+/// This is more efficient than the original function as it doesn't make a separate
+/// API call for roster data.
+pub fn update_player_points_with_roster_data(
+    player_points: &mut [crate::espn::types::PlayerPoints],
+    roster_data: Option<&crate::espn::types::LeagueData>,
+    verbose: bool,
+) {
+    if player_points.is_empty() {
+        return;
+    }
+
+    if let Some(league_data) = roster_data {
+        league_data.update_player_points_with_roster(player_points);
+        if verbose {
+            println!("✓ Roster status updated");
+        }
+    } else {
+        if verbose {
+            println!("⚠ No roster data available");
+        }
+        // Set all players as unknown roster status
+        for player in player_points.iter_mut() {
+            player.is_rostered = None;
+        }
+    }
+}
+
+/// Legacy function - kept for backward compatibility
+///
+/// This function is less efficient as it makes a separate API call.
+/// Use `fetch_current_roster_data` + `update_player_points_with_roster_data` instead.
+pub async fn update_player_points_with_roster_info(
+    player_points: &mut [crate::espn::types::PlayerPoints],
+    league_id: LeagueId,
+    season: Season,
+    verbose: bool,
+) -> Result<()> {
+    let roster_data = fetch_current_roster_data(league_id, season, verbose).await?;
+    update_player_points_with_roster_data(player_points, roster_data.as_ref(), verbose);
     Ok(())
 }
 

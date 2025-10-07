@@ -1,13 +1,14 @@
 //! Basic database query operations
 
 use super::{models::*, schema::PlayerDatabase};
+use crate::core::cache::{PlayerDataCacheKey, WeeklyStatsCacheKey, GLOBAL_CACHE};
 use crate::{PlayerId, Position, Season, Week};
 use anyhow::Result;
 use rusqlite::{params, Row};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Type alias for the complex return type of cached player data queries
-type CachedPlayerDataRow = (
+pub type CachedPlayerDataRow = (
     PlayerId,
     String,
     String,
@@ -110,6 +111,17 @@ impl PlayerDatabase {
         season: Season,
         week: Week,
     ) -> Result<Option<PlayerWeeklyStats>> {
+        // Create cache key
+        let cache_key = WeeklyStatsCacheKey {
+            player_id,
+            season,
+            week,
+        };
+
+        // Check cache first
+        if let Some(cached_result) = GLOBAL_CACHE.weekly_stats.get(&cache_key) {
+            return Ok(cached_result);
+        }
         let mut stmt = self.conn.prepare(
             "SELECT player_id, season, week, projected_points, actual_points,
                     active, injured, injury_status, is_rostered, fantasy_team_id, fantasy_team_name,
@@ -123,11 +135,18 @@ impl PlayerDatabase {
             |row| self.row_to_weekly_stats(row),
         );
 
-        match result {
-            Ok(stats) => Ok(Some(stats)),
-            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-            Err(e) => Err(e.into()),
-        }
+        let final_result = match result {
+            Ok(stats) => Some(stats),
+            Err(rusqlite::Error::QueryReturnedNoRows) => None,
+            Err(e) => return Err(e.into()),
+        };
+
+        // Cache the result
+        GLOBAL_CACHE
+            .weekly_stats
+            .put(cache_key, final_result.clone());
+
+        Ok(final_result)
     }
 
     /// Get all weekly stats for a player in a season
@@ -202,6 +221,19 @@ impl PlayerDatabase {
         positions: Option<&Vec<Position>>,
         projected: bool,
     ) -> Result<Vec<CachedPlayerDataRow>> {
+        // Create cache key
+        let cache_key = PlayerDataCacheKey {
+            season,
+            week,
+            player_names: player_names.cloned(),
+            positions: positions.cloned(),
+            projected,
+        };
+
+        // Check cache first
+        if let Some(cached_result) = GLOBAL_CACHE.player_data.get(&cache_key) {
+            return Ok(cached_result);
+        }
         let mut query = String::from(
             "SELECT p.player_id, p.name, p.position,
                     CASE WHEN ? = 1 THEN pws.projected_points ELSE pws.actual_points END as points,
@@ -294,6 +326,10 @@ impl PlayerDatabase {
         for row in rows {
             results.push(row?);
         }
+
+        // Cache the results
+        GLOBAL_CACHE.player_data.put(cache_key, results.clone());
+
         Ok(results)
     }
 

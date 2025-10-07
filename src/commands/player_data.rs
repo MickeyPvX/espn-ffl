@@ -19,13 +19,16 @@
 
 use crate::{
     cli::types::{
-        filters::{InjuryStatusFilter, RosterStatusFilter},
+        filters::{FantasyTeamFilter, InjuryStatusFilter, RosterStatusFilter},
         position::Position,
     },
     espn::{
         cache_settings::load_or_fetch_league_settings,
         compute::{build_scoring_index, compute_points_for_week, select_weekly_stats},
-        http::{get_player_data, update_player_points_with_roster_info, PlayerDataRequest},
+        http::{
+            fetch_current_roster_data, get_player_data, update_player_points_with_roster_data,
+            PlayerDataRequest,
+        },
         types::PlayerPoints,
     },
     storage::{Player, PlayerDatabase, PlayerWeeklyStats},
@@ -52,6 +55,7 @@ pub struct PlayerDataParams {
     pub positions: Option<Vec<Position>>,
     pub injury_status: Option<InjuryStatusFilter>,
     pub roster_status: Option<RosterStatusFilter>,
+    pub fantasy_team_filter: Option<FantasyTeamFilter>,
     pub refresh: bool,
     pub clear_db: bool,
     pub refresh_positions: bool,
@@ -71,6 +75,7 @@ impl PlayerDataParams {
             positions: None,
             injury_status: None,
             roster_status: None,
+            fantasy_team_filter: None,
             refresh: false,
             clear_db: false,
             refresh_positions: false,
@@ -122,6 +127,9 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
     let league_id = resolve_league_id(params.league_id)?;
     println!("Connecting to database...");
     let mut db = PlayerDatabase::new()?;
+
+    // Fetch current roster data once for efficient reuse
+    let roster_data = fetch_current_roster_data(league_id, params.season, true).await?;
 
     // If clear_db flag is set, clear all database data first
     if params.clear_db {
@@ -337,15 +345,12 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
         player_points.len()
     );
 
-    // Check roster status for players
-    update_player_points_with_roster_info(
+    // Check roster status for players using pre-fetched data
+    update_player_points_with_roster_data(
         &mut player_points,
-        league_id,
-        params.season,
-        params.week,
+        roster_data.as_ref(),
         true, // verbose
-    )
-    .await?;
+    );
 
     // Update database with roster information
     if !player_points.is_empty() {
@@ -377,12 +382,16 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
         }
     }
 
-    // Apply client-side filtering for specific injury statuses and roster status
-    if params.injury_status.is_some() || params.roster_status.is_some() {
+    // Apply client-side filtering for specific injury statuses, roster status, and fantasy team
+    if params.injury_status.is_some()
+        || params.roster_status.is_some()
+        || params.fantasy_team_filter.is_some()
+    {
         apply_status_filters(
             &mut player_points,
             params.injury_status.as_ref(),
             params.roster_status.as_ref(),
+            params.fantasy_team_filter.as_ref(),
         );
     }
 
