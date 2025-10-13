@@ -175,19 +175,29 @@ impl PlayerDatabase {
         Ok(stats)
     }
 
-    /// Insert or merge weekly stats, preserving existing projected/actual points
+    /// Insert or merge weekly stats, preserving existing projected/actual points but updating roster info
     pub fn merge_weekly_stats(&mut self, stats: &PlayerWeeklyStats) -> Result<()> {
         let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
 
         // Use INSERT OR REPLACE with COALESCE to merge data
+        // Always update roster info but preserve existing points if available
         self.conn.execute(
             "INSERT OR REPLACE INTO player_weekly_stats
-             (player_id, season, week, projected_points, actual_points, created_at, updated_at)
+             (player_id, season, week, projected_points, actual_points,
+              active, injured, injury_status, is_rostered, fantasy_team_id, fantasy_team_name,
+              created_at, updated_at)
              VALUES (?, ?, ?,
                      COALESCE(?, (SELECT projected_points FROM player_weekly_stats
                                   WHERE player_id = ? AND season = ? AND week = ?)),
                      COALESCE(?, (SELECT actual_points FROM player_weekly_stats
                                   WHERE player_id = ? AND season = ? AND week = ?)),
+                     COALESCE(?, (SELECT active FROM player_weekly_stats
+                                  WHERE player_id = ? AND season = ? AND week = ?)),
+                     COALESCE(?, (SELECT injured FROM player_weekly_stats
+                                  WHERE player_id = ? AND season = ? AND week = ?)),
+                     COALESCE(?, (SELECT injury_status FROM player_weekly_stats
+                                  WHERE player_id = ? AND season = ? AND week = ?)),
+                     ?, ?, ?,
                      COALESCE((SELECT created_at FROM player_weekly_stats
                               WHERE player_id = ? AND season = ? AND week = ?), ?), ?)",
             params![
@@ -202,6 +212,21 @@ impl PlayerDatabase {
                 stats.player_id.as_u64(),
                 stats.season.as_u16(),
                 stats.week.as_u16(),
+                stats.active,
+                stats.player_id.as_u64(),
+                stats.season.as_u16(),
+                stats.week.as_u16(),
+                stats.injured,
+                stats.player_id.as_u64(),
+                stats.season.as_u16(),
+                stats.week.as_u16(),
+                stats.injury_status.as_ref().map(|s| s.to_string()),
+                stats.player_id.as_u64(),
+                stats.season.as_u16(),
+                stats.week.as_u16(),
+                stats.is_rostered,
+                stats.fantasy_team_id,
+                stats.fantasy_team_name,
                 stats.player_id.as_u64(),
                 stats.season.as_u16(),
                 stats.week.as_u16(),
@@ -398,6 +423,84 @@ impl PlayerDatabase {
         )?;
 
         Ok(count > 0)
+    }
+
+    /// Get all players from the database
+    pub fn get_all_players(&self) -> Result<Vec<Player>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT player_id, name, position, team FROM players ORDER BY name")?;
+
+        let rows = stmt.query_map([], |row| {
+            Ok(Player {
+                player_id: PlayerId::new(row.get(0)?),
+                name: row.get(1)?,
+                position: row.get(2)?,
+                team: row.get(3)?,
+            })
+        })?;
+
+        let mut players = Vec::new();
+        for row in rows {
+            players.push(row?);
+        }
+        Ok(players)
+    }
+
+    /// Update roster information for ALL players based on current roster data
+    /// This ensures that roster assignments are current for all players in database
+    pub fn update_all_players_roster_info(
+        &mut self,
+        roster_data: &crate::espn::types::LeagueData,
+        season: Season,
+        week: Week,
+    ) -> Result<usize> {
+        let player_to_team = roster_data.create_player_roster_map();
+        let mut updated_count = 0;
+
+        // Get all players from database
+        let all_players = self.get_all_players()?;
+
+        for player in all_players {
+            let player_id_i64 = player.player_id.as_u64() as i64;
+            let negative_player_id_i64 = -(player_id_i64);
+
+            // Check both positive and negative versions of the ID
+            let roster_info = player_to_team
+                .get(&player_id_i64)
+                .or_else(|| player_to_team.get(&negative_player_id_i64));
+
+            let (is_rostered, team_id, team_name) =
+                if let Some((team_id, team_name, _team_abbrev)) = roster_info {
+                    (Some(true), Some(*team_id), team_name.clone())
+                } else {
+                    (Some(false), None, None)
+                };
+
+            // Update or create a minimal weekly stats entry to store roster info
+            // This ensures roster info is available even for players without performance stats
+            let minimal_stats = PlayerWeeklyStats {
+                player_id: player.player_id,
+                season,
+                week,
+                projected_points: None,
+                actual_points: None,
+                active: None,
+                injured: None,
+                injury_status: None,
+                is_rostered,
+                fantasy_team_id: team_id,
+                fantasy_team_name: team_name,
+                created_at: 0, // Will be set by database
+                updated_at: 0, // Will be set by database
+            };
+
+            // Use merge to preserve any existing stats while updating roster info
+            self.merge_weekly_stats(&minimal_stats)?;
+            updated_count += 1;
+        }
+
+        Ok(updated_count)
     }
 
     /// Clear all data from the database (useful for starting fresh)
