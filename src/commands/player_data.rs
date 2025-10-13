@@ -25,10 +25,7 @@ use crate::{
     espn::{
         cache_settings::load_or_fetch_league_settings,
         compute::{build_scoring_index, compute_points_for_week, select_weekly_stats},
-        http::{
-            get_player_data, update_player_points_with_roster_data,
-            PlayerDataRequest,
-        },
+        http::{get_player_data, update_player_points_with_roster_data, PlayerDataRequest},
         types::PlayerPoints,
     },
     storage::{Player, PlayerDatabase, PlayerWeeklyStats},
@@ -129,27 +126,47 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
     let mut db = PlayerDatabase::new()?;
 
     // Fetch week-specific roster data to match the player data we're querying
-    let roster_data = match crate::espn::http::get_league_roster_data(false, league_id, params.season, Some(params.week), params.refresh).await {
+    let roster_data = match crate::espn::http::get_league_roster_data(
+        false,
+        league_id,
+        params.season,
+        Some(params.week),
+        params.refresh,
+    )
+    .await
+    {
         Ok((data, cache_status)) => {
             match cache_status {
                 crate::espn::http::CacheStatus::Hit => {
-                    println!("✓ Week {} roster status loaded (from cache)", params.week.as_u16());
-                },
+                    println!(
+                        "✓ Week {} roster status loaded (from cache)",
+                        params.week.as_u16()
+                    );
+                }
                 crate::espn::http::CacheStatus::Miss => {
-                    println!("✓ Week {} roster status fetched (cache miss)", params.week.as_u16());
-                },
+                    println!(
+                        "✓ Week {} roster status fetched (cache miss)",
+                        params.week.as_u16()
+                    );
+                }
                 crate::espn::http::CacheStatus::Refreshed => {
-                    println!("✓ Week {} roster status fetched (refreshed)", params.week.as_u16());
-                },
+                    println!(
+                        "✓ Week {} roster status fetched (refreshed)",
+                        params.week.as_u16()
+                    );
+                }
             }
             Some(data)
-        },
+        }
         Err(e) => {
-            println!("⚠ Could not fetch week {} roster data: {}", params.week.as_u16(), e);
+            println!(
+                "⚠ Could not fetch week {} roster data: {}",
+                params.week.as_u16(),
+                e
+            );
             None
         }
     };
-
 
     // If clear_db flag is set, clear all database data first
     if params.clear_db {
@@ -250,7 +267,6 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
         })
         .await?;
 
-
         // Deserialize directly into Vec<Player>
         let players: Vec<crate::espn::types::Player> = serde_json::from_value(players_val)?;
         println!(
@@ -260,7 +276,8 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
         let stat_source = if params.projected { 1 } else { 0 };
 
         // Phase 1: Store ALL players and process stats separately
-        let filtered_players = filter_and_convert_players(players, params.player_name.clone(), positions_clone);
+        let filtered_players =
+            filter_and_convert_players(players, params.player_name.clone(), positions_clone);
 
         // First, store all players regardless of whether they have stats
         for filtered_player in &filtered_players {
@@ -289,79 +306,74 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
         }
 
         // Phase 2: Process stats for players who have them
-        let processed_data: Vec<(PlayerWeeklyStats, PlayerPoints)> =
-            filtered_players
-                .into_par_iter()
-                .filter_map(|filtered_player| {
-                    let player = filtered_player.original_player;
-                    let player_id = filtered_player.player_id;
+        let processed_data: Vec<(PlayerWeeklyStats, PlayerPoints)> = filtered_players
+            .into_par_iter()
+            .filter_map(|filtered_player| {
+                let player = filtered_player.original_player;
+                let player_id = filtered_player.player_id;
 
-                    let position = if player.default_position_id < 0 {
-                        "UNKNOWN".to_string()
-                    } else {
-                        Position::try_from(player.default_position_id as u8)
-                            .map(|p| p.to_string())
-                            .unwrap_or_else(|_| "UNKNOWN".to_string())
-                    };
+                let position = if player.default_position_id < 0 {
+                    "UNKNOWN".to_string()
+                } else {
+                    Position::try_from(player.default_position_id as u8)
+                        .map(|p| p.to_string())
+                        .unwrap_or_else(|_| "UNKNOWN".to_string())
+                };
 
-                    // Compute weekly stats and fantasy points only if player has stats
-                    if let Ok(player_value) = serde_json::to_value(&player) {
-                        if let Some(weekly_stats) = select_weekly_stats(
-                            &player_value,
-                            params.season.as_u16(),
-                            params.week.as_u16(),
-                            stat_source,
-                        ) {
-                            let position_id = if player.default_position_id < 0 {
-                                0u8 // Default to QB position for scoring purposes
-                            } else {
-                                player.default_position_id as u8
-                            };
-                            let points =
-                                compute_points_for_week(weekly_stats, position_id, &scoring_index);
-
-                            let weekly_db_stats = PlayerWeeklyStats {
-                                player_id,
-                                season: params.season,
-                                week: params.week,
-                                projected_points: if params.projected {
-                                    Some(points)
-                                } else {
-                                    None
-                                },
-                                actual_points: if !params.projected {
-                                    Some(points)
-                                } else {
-                                    None
-                                },
-                                active: player.active,
-                                injured: player.injured,
-                                injury_status: player.injury_status.clone(),
-                                is_rostered: None, // Will be updated later when roster data is applied
-                                fantasy_team_id: None, // Will be updated later when roster data is applied
-                                fantasy_team_name: None, // Will be updated later when roster data is applied
-                                created_at: 0,     // Will be set by database
-                                updated_at: 0,     // Will be set by database
-                            };
-
-                            let player_point = PlayerPoints::from_espn_player(
-                                player_id,
-                                &player,
-                                position.clone(),
-                                points,
-                                params.week,
-                                params.projected,
-                            );
-
-                            Some((weekly_db_stats, player_point))
+                // Compute weekly stats and fantasy points only if player has stats
+                if let Ok(player_value) = serde_json::to_value(&player) {
+                    if let Some(weekly_stats) = select_weekly_stats(
+                        &player_value,
+                        params.season.as_u16(),
+                        params.week.as_u16(),
+                        stat_source,
+                    ) {
+                        let position_id = if player.default_position_id < 0 {
+                            0u8 // Default to QB position for scoring purposes
                         } else {
-                            None
-                        }
+                            player.default_position_id as u8
+                        };
+                        let points =
+                            compute_points_for_week(weekly_stats, position_id, &scoring_index);
+
+                        let weekly_db_stats = PlayerWeeklyStats {
+                            player_id,
+                            season: params.season,
+                            week: params.week,
+                            projected_points: if params.projected { Some(points) } else { None },
+                            actual_points: if !params.projected {
+                                Some(points)
+                            } else {
+                                None
+                            },
+                            active: player.active,
+                            injured: player.injured,
+                            injury_status: player.injury_status.clone(),
+                            is_rostered: None, // Will be updated later when roster data is applied
+                            fantasy_team_id: None, // Will be updated later when roster data is applied
+                            fantasy_team_name: None, // Will be updated later when roster data is applied
+                            created_at: 0,           // Will be set by database
+                            updated_at: 0,           // Will be set by database
+                        };
+
+                        let player_point = PlayerPoints::from_espn_player(
+                            player_id,
+                            &player,
+                            position.clone(),
+                            points,
+                            params.week,
+                            params.projected,
+                        );
+
+                        Some((weekly_db_stats, player_point))
                     } else {
                         None
                     }
-                })
-                .collect();
+                } else {
+                    None
+                }
+            })
+            .collect();
 
         // Phase 3: Collect PlayerPoints first
         for (_weekly_db_stats, player_point) in &processed_data {
@@ -388,7 +400,10 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
     if !use_cached {
         for (mut weekly_db_stats, _player_point) in stats_to_save {
             // Find the corresponding updated player_points to get roster info
-            if let Some(updated_player) = player_points.iter().find(|p| p.id == weekly_db_stats.player_id) {
+            if let Some(updated_player) = player_points
+                .iter()
+                .find(|p| p.id == weekly_db_stats.player_id)
+            {
                 weekly_db_stats.is_rostered = updated_player.is_rostered;
                 weekly_db_stats.fantasy_team_id = updated_player.team_id;
                 weekly_db_stats.fantasy_team_name = updated_player.team_name.clone();
@@ -396,7 +411,6 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
             let _ = db.merge_weekly_stats(&weekly_db_stats);
         }
     }
-
 
     // Update database with roster information for ALL players (not just those with points)
     if let Some(ref league_data) = roster_data {

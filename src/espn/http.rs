@@ -296,7 +296,8 @@ pub async fn get_league_rosters(
     week: Option<Week>,
     refresh: bool,
 ) -> Result<Value> {
-    let (data, _status) = get_league_rosters_with_cache_status(debug, league_id, season, week, refresh).await?;
+    let (data, _status) =
+        get_league_rosters_with_cache_status(debug, league_id, season, week, refresh).await?;
     Ok(data)
 }
 
@@ -385,7 +386,8 @@ pub async fn get_league_roster_data(
     week: Option<Week>,
     refresh: bool,
 ) -> Result<(crate::espn::types::LeagueData, CacheStatus)> {
-    let (roster_data, cache_status) = get_league_rosters_with_cache_status(debug, league_id, season, week, refresh).await?;
+    let (roster_data, cache_status) =
+        get_league_rosters_with_cache_status(debug, league_id, season, week, refresh).await?;
     let league_data: crate::espn::types::LeagueData = serde_json::from_value(roster_data)?;
     Ok((league_data, cache_status))
 }

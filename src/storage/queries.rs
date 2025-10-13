@@ -427,9 +427,9 @@ impl PlayerDatabase {
 
     /// Get all players from the database
     pub fn get_all_players(&self) -> Result<Vec<Player>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT player_id, name, position, team FROM players ORDER BY name",
-        )?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT player_id, name, position, team FROM players ORDER BY name")?;
 
         let rows = stmt.query_map([], |row| {
             Ok(Player {
@@ -470,11 +470,12 @@ impl PlayerDatabase {
                 .get(&player_id_i64)
                 .or_else(|| player_to_team.get(&negative_player_id_i64));
 
-            let (is_rostered, team_id, team_name) = if let Some((team_id, team_name, _team_abbrev)) = roster_info {
-                (Some(true), Some(*team_id), team_name.clone())
-            } else {
-                (Some(false), None, None)
-            };
+            let (is_rostered, team_id, team_name) =
+                if let Some((team_id, team_name, _team_abbrev)) = roster_info {
+                    (Some(true), Some(*team_id), team_name.clone())
+                } else {
+                    (Some(false), None, None)
+                };
 
             // Update or create a minimal weekly stats entry to store roster info
             // This ensures roster info is available even for players without performance stats

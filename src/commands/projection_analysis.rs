@@ -8,10 +8,7 @@ use crate::{
     espn::{
         cache_settings::load_or_fetch_league_settings,
         compute::{build_scoring_index, compute_points_for_week, select_weekly_stats},
-        http::{
-            get_player_data, update_player_points_with_roster_data,
-            PlayerDataRequest,
-        },
+        http::{get_player_data, update_player_points_with_roster_data, PlayerDataRequest},
         types::PlayerPoints,
     },
     storage::PlayerDatabase,
@@ -49,26 +46,41 @@ pub async fn handle_projection_analysis(
     let db = PlayerDatabase::new()?;
 
     // Fetch week-specific roster data to match the week being analyzed
-    let roster_data = match crate::espn::http::get_league_roster_data(false, league_id, season, Some(week), refresh).await {
+    let roster_data = match crate::espn::http::get_league_roster_data(
+        false,
+        league_id,
+        season,
+        Some(week),
+        refresh,
+    )
+    .await
+    {
         Ok((data, cache_status)) => {
             if !as_json {
                 match cache_status {
                     crate::espn::http::CacheStatus::Hit => {
                         println!("✓ Week {} roster status loaded (from cache)", week.as_u16());
-                    },
+                    }
                     crate::espn::http::CacheStatus::Miss => {
-                        println!("✓ Week {} roster status fetched (cache miss)", week.as_u16());
-                    },
+                        println!(
+                            "✓ Week {} roster status fetched (cache miss)",
+                            week.as_u16()
+                        );
+                    }
                     crate::espn::http::CacheStatus::Refreshed => {
                         println!("✓ Week {} roster status fetched (refreshed)", week.as_u16());
-                    },
+                    }
                 }
             }
             Some(data)
-        },
+        }
         Err(e) => {
             if !as_json {
-                println!("⚠ Could not fetch week {} roster data: {}", week.as_u16(), e);
+                println!(
+                    "⚠ Could not fetch week {} roster data: {}",
+                    week.as_u16(),
+                    e
+                );
             }
             None
         }
