@@ -300,6 +300,7 @@ impl LeagueData {
     pub fn update_player_points_with_roster(&self, player_points: &mut [PlayerPoints]) {
         let player_to_team = self.create_player_roster_map();
 
+
         for player in player_points.iter_mut() {
             let player_id_i64 = player.id.as_u64() as i64;
             let negative_player_id_i64 = -(player_id_i64);
@@ -309,6 +310,7 @@ impl LeagueData {
             let roster_info = player_to_team
                 .get(&player_id_i64)
                 .or_else(|| player_to_team.get(&negative_player_id_i64));
+
 
             if let Some((team_id, team_name, _team_abbrev)) = roster_info {
                 player.is_rostered = Some(true);

@@ -221,13 +221,14 @@ pub async fn get_player_data(request: PlayerDataRequest) -> Result<Value> {
     Ok(players_val)
 }
 
-/// Get league roster information (teams and their players)
-pub async fn get_league_rosters(
+/// Get league roster information with cache status (teams and their players)
+pub async fn get_league_rosters_with_cache_status(
     debug: bool,
     league_id: LeagueId,
     season: Season,
     week: Option<Week>,
-) -> Result<Value> {
+    refresh: bool,
+) -> Result<(Value, CacheStatus)> {
     // Create cache key
     let cache_key = RosterDataCacheKey {
         league_id,
@@ -235,12 +236,18 @@ pub async fn get_league_rosters(
         week,
     };
 
-    // Check cache first (but skip if debug mode to see the actual request)
-    if !debug {
+    // Check cache first (but skip if debug mode or refresh flag is set)
+    if !debug && !refresh {
         if let Some(cached_result) = GLOBAL_CACHE.roster_data.get(&cache_key) {
-            return Ok(cached_result);
+            return Ok((cached_result, CacheStatus::Hit));
         }
     }
+
+    let cache_status = if refresh {
+        CacheStatus::Refreshed
+    } else {
+        CacheStatus::Miss
+    };
     let url = format!(
         "{FFL_BASE_URL}/seasons/{}/segments/0/leagues/{}",
         season.as_u16(),
@@ -278,7 +285,19 @@ pub async fn get_league_rosters(
         GLOBAL_CACHE.roster_data.put(cache_key, res.clone());
     }
 
-    Ok(res)
+    Ok((res, cache_status))
+}
+
+/// Get league roster information (teams and their players) - backward compatibility
+pub async fn get_league_rosters(
+    debug: bool,
+    league_id: LeagueId,
+    season: Season,
+    week: Option<Week>,
+    refresh: bool,
+) -> Result<Value> {
+    let (data, _status) = get_league_rosters_with_cache_status(debug, league_id, season, week, refresh).await?;
+    Ok(data)
 }
 
 /// Get detailed player information including injury status
@@ -350,16 +369,25 @@ pub async fn get_player_data_with_view(
     Ok(res)
 }
 
+/// Cache status for roster data
+#[derive(Debug, Clone)]
+pub enum CacheStatus {
+    Hit,
+    Miss,
+    Refreshed,
+}
+
 /// Get league roster data and return team information with rosters
 pub async fn get_league_roster_data(
     debug: bool,
     league_id: LeagueId,
     season: Season,
     week: Option<Week>,
-) -> Result<crate::espn::types::LeagueData> {
-    let roster_data = get_league_rosters(debug, league_id, season, week).await?;
+    refresh: bool,
+) -> Result<(crate::espn::types::LeagueData, CacheStatus)> {
+    let (roster_data, cache_status) = get_league_rosters_with_cache_status(debug, league_id, season, week, refresh).await?;
     let league_data: crate::espn::types::LeagueData = serde_json::from_value(roster_data)?;
-    Ok(league_data)
+    Ok((league_data, cache_status))
 }
 
 /// Fetch roster data and update PlayerPoints with roster information
@@ -372,17 +400,18 @@ pub async fn fetch_current_roster_data(
     league_id: LeagueId,
     season: Season,
     verbose: bool,
-) -> Result<Option<crate::espn::types::LeagueData>> {
+    refresh: bool,
+) -> Result<Option<(crate::espn::types::LeagueData, CacheStatus)>> {
     if verbose {
         println!("Checking league roster status...");
     }
 
-    match get_league_roster_data(false, league_id, season, None).await {
-        Ok(league_data) => {
+    match get_league_roster_data(false, league_id, season, None, refresh).await {
+        Ok((league_data, cache_status)) => {
             if verbose {
                 println!("✓ Roster status fetched");
             }
-            Ok(Some(league_data))
+            Ok(Some((league_data, cache_status)))
         }
         Err(e) => {
             if verbose {
@@ -431,9 +460,14 @@ pub async fn update_player_points_with_roster_info(
     league_id: LeagueId,
     season: Season,
     verbose: bool,
+    refresh: bool,
 ) -> Result<()> {
-    let roster_data = fetch_current_roster_data(league_id, season, verbose).await?;
-    update_player_points_with_roster_data(player_points, roster_data.as_ref(), verbose);
+    let roster_data = fetch_current_roster_data(league_id, season, verbose, refresh).await?;
+    if let Some((league_data, _cache_status)) = roster_data {
+        update_player_points_with_roster_data(player_points, Some(&league_data), verbose);
+    } else {
+        update_player_points_with_roster_data(player_points, None, verbose);
+    }
     Ok(())
 }
 
