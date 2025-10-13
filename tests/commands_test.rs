@@ -2,7 +2,7 @@
 
 use espn_ffl::{
     cli::types::position::Position,
-    commands::{player_data::PlayerDataParams, resolve_league_id},
+    commands::{common::CommandParamsBuilder, player_data::PlayerDataParams, resolve_league_id},
     espn::types::PlayerPoints,
     storage::*,
     EspnError, LeagueId, PlayerId, Season, Week, LEAGUE_ID_ENV_VAR,
@@ -188,13 +188,16 @@ fn test_player_data_params_creation() {
         .with_debug();
 
     assert!(params.debug);
-    assert!(!params.as_json);
-    assert_eq!(params.league_id, Some(LeagueId::new(12345)));
-    assert_eq!(params.player_name, Some(vec!["Test".to_string()]));
-    assert_eq!(params.positions, Some(vec![Position::QB, Position::RB]));
+    assert!(!params.base.as_json);
+    assert_eq!(params.base.league_id, Some(LeagueId::new(12345)));
+    assert_eq!(params.base.player_names, Some(vec!["Test".to_string()]));
+    assert_eq!(
+        params.base.positions,
+        Some(vec![Position::QB, Position::RB])
+    );
     assert!(params.projected);
-    assert_eq!(params.season, Season::new(2023));
-    assert_eq!(params.week, Week::new(1));
+    assert_eq!(params.base.season, Season::new(2023));
+    assert_eq!(params.base.week, Week::new(1));
 }
 
 #[test]

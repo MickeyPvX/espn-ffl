@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 
 use crate::{
     cli::types::{
-        filters::{InjuryStatusFilter, RosterStatusFilter},
+        filters::{FantasyTeamFilter, InjuryStatusFilter, RosterStatusFilter},
         position::Position,
     },
     espn::{
@@ -22,6 +22,168 @@ use crate::{
 
 /// Type alias for scoring index
 pub type ScoringIndex = BTreeMap<u16, (f64, BTreeMap<u8, f64>)>;
+
+/// Shared command parameters that are common across multiple commands
+#[derive(Debug, Clone)]
+pub struct CommandParams {
+    pub league_id: Option<LeagueId>,
+    pub season: Season,
+    pub week: Week,
+    pub as_json: bool,
+    pub refresh: bool,
+    pub player_names: Option<Vec<String>>,
+    pub positions: Option<Vec<Position>>,
+    pub injury_status: Option<InjuryStatusFilter>,
+    pub roster_status: Option<RosterStatusFilter>,
+    pub fantasy_team_filter: Option<FantasyTeamFilter>,
+}
+
+impl CommandParams {
+    /// Create new parameters with required fields
+    pub fn new(season: Season, week: Week) -> Self {
+        Self {
+            league_id: None,
+            season,
+            week,
+            as_json: false,
+            refresh: false,
+            player_names: None,
+            positions: None,
+            injury_status: None,
+            roster_status: None,
+            fantasy_team_filter: None,
+        }
+    }
+
+    /// Set league ID
+    pub fn with_league_id(mut self, league_id: LeagueId) -> Self {
+        self.league_id = Some(league_id);
+        self
+    }
+
+    /// Filter by specific player names
+    pub fn with_player_names(mut self, names: Vec<String>) -> Self {
+        self.player_names = Some(names);
+        self
+    }
+
+    /// Filter by positions
+    pub fn with_positions(mut self, positions: Vec<Position>) -> Self {
+        self.positions = Some(positions);
+        self
+    }
+
+    /// Output as JSON
+    pub fn with_json_output(mut self) -> Self {
+        self.as_json = true;
+        self
+    }
+
+    /// Force refresh from API
+    pub fn with_refresh(mut self) -> Self {
+        self.refresh = true;
+        self
+    }
+
+    /// Filter by injury status
+    pub fn with_injury_filter(mut self, filter: InjuryStatusFilter) -> Self {
+        self.injury_status = Some(filter);
+        self
+    }
+
+    /// Filter by roster status
+    pub fn with_roster_filter(mut self, filter: RosterStatusFilter) -> Self {
+        self.roster_status = Some(filter);
+        self
+    }
+
+    /// Filter by fantasy team
+    pub fn with_fantasy_team_filter(mut self, filter: FantasyTeamFilter) -> Self {
+        self.fantasy_team_filter = Some(filter);
+        self
+    }
+}
+
+/// Trait for common command parameter building patterns
+pub trait CommandParamsBuilder {
+    /// Get mutable access to the base CommandParams
+    fn base_mut(&mut self) -> &mut CommandParams;
+
+    /// Get access to the base CommandParams
+    fn base(&self) -> &CommandParams;
+
+    /// Set league ID
+    fn with_league_id(mut self, league_id: LeagueId) -> Self
+    where
+        Self: Sized,
+    {
+        self.base_mut().league_id = Some(league_id);
+        self
+    }
+
+    /// Filter by specific player names
+    fn with_player_names(mut self, names: Vec<String>) -> Self
+    where
+        Self: Sized,
+    {
+        self.base_mut().player_names = Some(names);
+        self
+    }
+
+    /// Filter by positions
+    fn with_positions(mut self, positions: Vec<Position>) -> Self
+    where
+        Self: Sized,
+    {
+        self.base_mut().positions = Some(positions);
+        self
+    }
+
+    /// Output as JSON
+    fn with_json_output(mut self) -> Self
+    where
+        Self: Sized,
+    {
+        self.base_mut().as_json = true;
+        self
+    }
+
+    /// Force refresh from API
+    fn with_refresh(mut self) -> Self
+    where
+        Self: Sized,
+    {
+        self.base_mut().refresh = true;
+        self
+    }
+
+    /// Filter by injury status
+    fn with_injury_filter(mut self, filter: InjuryStatusFilter) -> Self
+    where
+        Self: Sized,
+    {
+        self.base_mut().injury_status = Some(filter);
+        self
+    }
+
+    /// Filter by roster status
+    fn with_roster_filter(mut self, filter: RosterStatusFilter) -> Self
+    where
+        Self: Sized,
+    {
+        self.base_mut().roster_status = Some(filter);
+        self
+    }
+
+    /// Filter by fantasy team
+    fn with_fantasy_team_filter(mut self, filter: FantasyTeamFilter) -> Self
+    where
+        Self: Sized,
+    {
+        self.base_mut().fantasy_team_filter = Some(filter);
+        self
+    }
+}
 
 /// Context containing common resources needed by most commands
 pub struct CommandContext {

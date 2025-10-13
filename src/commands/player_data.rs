@@ -18,10 +18,7 @@
 //! struct containing all configuration options.
 
 use crate::{
-    cli::types::{
-        filters::{FantasyTeamFilter, InjuryStatusFilter, RosterStatusFilter},
-        position::Position,
-    },
+    cli::types::position::Position,
     espn::{
         cache_settings::load_or_fetch_league_settings,
         compute::{build_scoring_index, compute_points_for_week, select_weekly_stats},
@@ -29,10 +26,11 @@ use crate::{
         types::PlayerPoints,
     },
     storage::{Player, PlayerDatabase, PlayerWeeklyStats},
-    LeagueId, Result, Season, Week,
+    Result, Season, Week,
 };
 
 use super::{
+    common::{CommandParams, CommandParamsBuilder},
     player_filters::{apply_status_filters, filter_and_convert_players},
     resolve_league_id,
 };
@@ -42,18 +40,9 @@ use rayon::prelude::*;
 /// Configuration for player data retrieval.
 #[derive(Debug)]
 pub struct PlayerDataParams {
-    pub league_id: Option<LeagueId>,
-    pub season: Season,
-    pub week: Week,
+    pub base: CommandParams,
     pub projected: bool,
     pub debug: bool,
-    pub as_json: bool,
-    pub player_name: Option<Vec<String>>,
-    pub positions: Option<Vec<Position>>,
-    pub injury_status: Option<InjuryStatusFilter>,
-    pub roster_status: Option<RosterStatusFilter>,
-    pub fantasy_team_filter: Option<FantasyTeamFilter>,
-    pub refresh: bool,
     pub clear_db: bool,
     pub refresh_positions: bool,
 }
@@ -62,39 +51,12 @@ impl PlayerDataParams {
     /// Create new parameters with required fields.
     pub fn new(season: Season, week: Week, projected: bool) -> Self {
         Self {
-            league_id: None,
-            season,
-            week,
+            base: CommandParams::new(season, week),
             projected,
             debug: false,
-            as_json: false,
-            player_name: None,
-            positions: None,
-            injury_status: None,
-            roster_status: None,
-            fantasy_team_filter: None,
-            refresh: false,
             clear_db: false,
             refresh_positions: false,
         }
-    }
-
-    /// Set league ID.
-    pub fn with_league_id(mut self, league_id: LeagueId) -> Self {
-        self.league_id = Some(league_id);
-        self
-    }
-
-    /// Filter by specific player names.
-    pub fn with_player_names(mut self, names: Vec<String>) -> Self {
-        self.player_name = Some(names);
-        self
-    }
-
-    /// Filter by positions.
-    pub fn with_positions(mut self, positions: Vec<Position>) -> Self {
-        self.positions = Some(positions);
-        self
     }
 
     /// Enable debug output.
@@ -102,17 +64,15 @@ impl PlayerDataParams {
         self.debug = true;
         self
     }
+}
 
-    /// Output as JSON.
-    pub fn with_json_output(mut self) -> Self {
-        self.as_json = true;
-        self
+impl CommandParamsBuilder for PlayerDataParams {
+    fn base_mut(&mut self) -> &mut CommandParams {
+        &mut self.base
     }
 
-    /// Force refresh from API.
-    pub fn with_refresh(mut self) -> Self {
-        self.refresh = true;
-        self
+    fn base(&self) -> &CommandParams {
+        &self.base
     }
 }
 
@@ -121,7 +81,7 @@ impl PlayerDataParams {
 /// Fetches player stats from ESPN API, calculates fantasy points using league settings,
 /// and caches results in local database for performance.
 pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
-    let league_id = resolve_league_id(params.league_id)?;
+    let league_id = resolve_league_id(params.base.league_id)?;
     println!("Connecting to database...");
     let mut db = PlayerDatabase::new()?;
 
@@ -129,9 +89,9 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
     let roster_data = match crate::espn::http::get_league_roster_data(
         false,
         league_id,
-        params.season,
-        Some(params.week),
-        params.refresh,
+        params.base.season,
+        Some(params.base.week),
+        params.base.refresh,
     )
     .await
     {
@@ -140,19 +100,19 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
                 crate::espn::http::CacheStatus::Hit => {
                     println!(
                         "✓ Week {} roster status loaded (from cache)",
-                        params.week.as_u16()
+                        params.base.week.as_u16()
                     );
                 }
                 crate::espn::http::CacheStatus::Miss => {
                     println!(
                         "✓ Week {} roster status fetched (cache miss)",
-                        params.week.as_u16()
+                        params.base.week.as_u16()
                     );
                 }
                 crate::espn::http::CacheStatus::Refreshed => {
                     println!(
                         "✓ Week {} roster status fetched (refreshed)",
-                        params.week.as_u16()
+                        params.base.week.as_u16()
                     );
                 }
             }
@@ -161,7 +121,7 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
         Err(e) => {
             println!(
                 "⚠ Could not fetch week {} roster data: {}",
-                params.week.as_u16(),
+                params.base.week.as_u16(),
                 e
             );
             None
@@ -177,20 +137,20 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
 
     // Load or fetch league settings to compute points; cached for future runs.
     println!("Loading league scoring settings...");
-    let settings = load_or_fetch_league_settings(league_id, false, params.season).await?;
+    let settings = load_or_fetch_league_settings(league_id, false, params.base.season).await?;
     let scoring_index = build_scoring_index(&settings.scoring_settings.scoring_items);
 
     let mut player_points: Vec<PlayerPoints> = Vec::new();
     let mut stats_to_save: Vec<(PlayerWeeklyStats, PlayerPoints)> = Vec::new();
 
     // Check if we should use cached data (only if not forcing refresh)
-    let use_cached = !params.refresh
-        && params.player_name.is_none()
-        && params.positions.is_none()
+    let use_cached = !params.base.refresh
+        && params.base.player_names.is_none()
+        && params.base.positions.is_none()
         && db.has_data_for_week(
-            params.season,
-            params.week,
-            params.player_name.as_ref(),
+            params.base.season,
+            params.base.week,
+            params.base.player_names.as_ref(),
             None,
             Some(params.projected),
         )?;
@@ -198,16 +158,16 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
     if use_cached {
         println!(
             "Using cached player data for Season {} Week {}...",
-            params.season.as_u16(),
-            params.week.as_u16()
+            params.base.season.as_u16(),
+            params.base.week.as_u16()
         );
 
         // Get cached data directly from database
         let cached_data = db.get_cached_player_data(
-            params.season,
-            params.week,
-            params.player_name.as_ref(),
-            params.positions.as_ref(),
+            params.base.season,
+            params.base.week,
+            params.base.player_names.as_ref(),
+            params.base.positions.as_ref(),
             params.projected,
         )?;
 
@@ -232,7 +192,7 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
                         name,
                         position,
                         points,
-                        week: params.week,
+                        week: params.base.week,
                         projected: params.projected,
                         active,
                         injured,
@@ -249,21 +209,21 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
     } else {
         println!(
             "Fetching fresh player data from ESPN for Season {} Week {}...",
-            params.season.as_u16(),
-            params.week.as_u16()
+            params.base.season.as_u16(),
+            params.base.week.as_u16()
         );
 
         // tarpaulin::skip - HTTP call, tested via integration tests
-        let positions_clone = params.positions.clone();
+        let positions_clone = params.base.positions.clone();
         let players_val = get_player_data(PlayerDataRequest {
             debug: params.debug,
             league_id,
-            player_names: params.player_name.clone(),
-            positions: params.positions.clone(),
-            season: params.season,
-            week: params.week,
-            injury_status_filter: params.injury_status.clone(),
-            roster_status_filter: params.roster_status.clone(),
+            player_names: params.base.player_names.clone(),
+            positions: params.base.positions.clone(),
+            season: params.base.season,
+            week: params.base.week,
+            injury_status_filter: params.base.injury_status.clone(),
+            roster_status_filter: params.base.roster_status.clone(),
         })
         .await?;
 
@@ -277,7 +237,7 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
 
         // Phase 1: Store ALL players and process stats separately
         let filtered_players =
-            filter_and_convert_players(players, params.player_name.clone(), positions_clone);
+            filter_and_convert_players(players, params.base.player_names.clone(), positions_clone);
 
         // First, store all players regardless of whether they have stats
         for filtered_player in &filtered_players {
@@ -324,8 +284,8 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
                 if let Ok(player_value) = serde_json::to_value(&player) {
                     if let Some(weekly_stats) = select_weekly_stats(
                         &player_value,
-                        params.season.as_u16(),
-                        params.week.as_u16(),
+                        params.base.season.as_u16(),
+                        params.base.week.as_u16(),
                         stat_source,
                     ) {
                         let position_id = if player.default_position_id < 0 {
@@ -338,8 +298,8 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
 
                         let weekly_db_stats = PlayerWeeklyStats {
                             player_id,
-                            season: params.season,
-                            week: params.week,
+                            season: params.base.season,
+                            week: params.base.week,
                             projected_points: if params.projected { Some(points) } else { None },
                             actual_points: if !params.projected {
                                 Some(points)
@@ -361,7 +321,7 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
                             &player,
                             position.clone(),
                             points,
-                            params.week,
+                            params.base.week,
                             params.projected,
                         );
 
@@ -414,22 +374,22 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
 
     // Update database with roster information for ALL players (not just those with points)
     if let Some(ref league_data) = roster_data {
-        match db.update_all_players_roster_info(league_data, params.season, params.week) {
+        match db.update_all_players_roster_info(league_data, params.base.season, params.base.week) {
             Ok(count) => println!("✓ Updated roster info for {} players", count),
             Err(e) => println!("⚠ Warning: Could not update roster info: {}", e),
         }
     }
 
     // Apply client-side filtering for specific injury statuses, roster status, and fantasy team
-    if params.injury_status.is_some()
-        || params.roster_status.is_some()
-        || params.fantasy_team_filter.is_some()
+    if params.base.injury_status.is_some()
+        || params.base.roster_status.is_some()
+        || params.base.fantasy_team_filter.is_some()
     {
         apply_status_filters(
             &mut player_points,
-            params.injury_status.as_ref(),
-            params.roster_status.as_ref(),
-            params.fantasy_team_filter.as_ref(),
+            params.base.injury_status.as_ref(),
+            params.base.roster_status.as_ref(),
+            params.base.fantasy_team_filter.as_ref(),
         );
     }
 
@@ -440,7 +400,7 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
             .unwrap_or(std::cmp::Ordering::Equal)
     });
 
-    if params.as_json {
+    if params.base.as_json {
         println!("{}", serde_json::to_string_pretty(&player_points)?); // tarpaulin::skip
     } else {
         for player in player_points {

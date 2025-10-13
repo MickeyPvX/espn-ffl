@@ -4,9 +4,10 @@ use clap::Parser;
 use espn_ffl::{
     cli::{Commands, ESPN},
     commands::{
+        common::CommandParamsBuilder,
         league_data::handle_league_data,
         player_data::{handle_player_data, PlayerDataParams},
-        projection_analysis::handle_projection_analysis,
+        projection_analysis::{handle_projection_analysis, ProjectionAnalysisParams},
         update_all_data::handle_update_all_data,
     },
     Result,
@@ -35,23 +36,40 @@ async fn main() -> Result<()> {
             refresh,
         } => {
             let fantasy_team_filter = filters.get_fantasy_team_filter();
-            handle_player_data(PlayerDataParams {
-                debug,
-                as_json: json,
-                league_id: filters.league_id,
-                player_name: filters.player_name,
-                positions: filters.positions,
-                projected,
-                season: filters.season,
-                week: filters.week,
-                refresh_positions,
-                clear_db,
-                refresh,
-                injury_status: filters.injury_status,
-                roster_status: filters.roster_status,
-                fantasy_team_filter,
-            })
-            .await?
+            let mut params = PlayerDataParams::new(filters.season, filters.week, projected);
+
+            if let Some(league_id) = filters.league_id {
+                params = params.with_league_id(league_id);
+            }
+            if let Some(player_names) = filters.player_name {
+                params = params.with_player_names(player_names);
+            }
+            if let Some(positions) = filters.positions {
+                params = params.with_positions(positions);
+            }
+            if let Some(injury_status) = filters.injury_status {
+                params = params.with_injury_filter(injury_status);
+            }
+            if let Some(roster_status) = filters.roster_status {
+                params = params.with_roster_filter(roster_status);
+            }
+            if let Some(team_filter) = fantasy_team_filter {
+                params = params.with_fantasy_team_filter(team_filter);
+            }
+            if json {
+                params = params.with_json_output();
+            }
+            if refresh {
+                params = params.with_refresh();
+            }
+            if debug {
+                params = params.with_debug();
+            }
+
+            params.refresh_positions = refresh_positions;
+            params.clear_db = clear_db;
+
+            handle_player_data(params).await?
         }
 
         Commands::ProjectionAnalysis {
@@ -63,20 +81,36 @@ async fn main() -> Result<()> {
             // Default to 1.0 (original conservative approach) if not specified
             let bias_factor = bias_strength.unwrap_or(1.0);
             let fantasy_team_filter = filters.get_fantasy_team_filter();
-            handle_projection_analysis(
-                filters.season,
-                filters.week,
-                filters.league_id,
-                filters.player_name,
-                filters.positions,
-                json,
-                refresh,
-                bias_factor,
-                filters.injury_status,
-                filters.roster_status,
-                fantasy_team_filter,
-            )
-            .await?
+
+            let mut params =
+                ProjectionAnalysisParams::new(filters.season, filters.week, bias_factor);
+
+            if let Some(league_id) = filters.league_id {
+                params = params.with_league_id(league_id);
+            }
+            if let Some(player_names) = filters.player_name {
+                params = params.with_player_names(player_names);
+            }
+            if let Some(positions) = filters.positions {
+                params = params.with_positions(positions);
+            }
+            if let Some(injury_status) = filters.injury_status {
+                params = params.with_injury_filter(injury_status);
+            }
+            if let Some(roster_status) = filters.roster_status {
+                params = params.with_roster_filter(roster_status);
+            }
+            if let Some(team_filter) = fantasy_team_filter {
+                params = params.with_fantasy_team_filter(team_filter);
+            }
+            if json {
+                params = params.with_json_output();
+            }
+            if refresh {
+                params = params.with_refresh();
+            }
+
+            handle_projection_analysis(params).await?
         }
 
         Commands::UpdateAllData {
