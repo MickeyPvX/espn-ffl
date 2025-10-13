@@ -59,15 +59,34 @@ pub async fn fetch_roster_data_with_message(
     league_id: LeagueId,
     season: Season,
     week: Option<Week>,
+    refresh: bool,
     verbose: bool,
 ) -> Result<Option<LeagueData>> {
-    match get_league_roster_data(false, league_id, season, week).await {
-        Ok(data) => {
+    match get_league_roster_data(false, league_id, season, week, refresh).await {
+        Ok((data, cache_status)) => {
             if verbose {
-                if let Some(w) = week {
-                    println!("✓ Week {} roster status loaded", w.as_u16());
-                } else {
-                    println!("✓ Current roster status loaded");
+                match cache_status {
+                    crate::espn::http::CacheStatus::Hit => {
+                        if let Some(w) = week {
+                            println!("✓ Week {} roster status loaded (from cache)", w.as_u16());
+                        } else {
+                            println!("✓ Current roster status loaded (from cache)");
+                        }
+                    }
+                    crate::espn::http::CacheStatus::Miss => {
+                        if let Some(w) = week {
+                            println!("✓ Week {} roster status fetched (cache miss)", w.as_u16());
+                        } else {
+                            println!("✓ Current roster status fetched (cache miss)");
+                        }
+                    }
+                    crate::espn::http::CacheStatus::Refreshed => {
+                        if let Some(w) = week {
+                            println!("✓ Week {} roster status fetched (refreshed)", w.as_u16());
+                        } else {
+                            println!("✓ Current roster status fetched (refreshed)");
+                        }
+                    }
                 }
             }
             Ok(Some(data))
@@ -104,30 +123,6 @@ pub fn position_id_to_string(default_position_id: i32) -> String {
         Position::try_from(default_position_id as u8)
             .map(|p| p.to_string())
             .unwrap_or_else(|_| "UNKNOWN".to_string())
-    }
-}
-
-/// Create a PlayerDataRequest with common parameters
-/// This reduces repetitive code across commands
-pub fn create_player_data_request(
-    league_id: LeagueId,
-    season: Season,
-    week: Week,
-    debug: bool,
-    player_names: Option<Vec<String>>,
-    positions: Option<Vec<Position>>,
-    injury_status_filter: Option<InjuryStatusFilter>,
-    roster_status_filter: Option<RosterStatusFilter>,
-) -> PlayerDataRequest {
-    PlayerDataRequest {
-        league_id,
-        season,
-        week,
-        debug,
-        player_names,
-        positions,
-        injury_status_filter,
-        roster_status_filter,
     }
 }
 
@@ -194,35 +189,6 @@ mod tests {
     }
 
     #[test]
-    fn test_create_player_data_request() {
-        use crate::{LeagueId, Season, Week};
-
-        let league_id = LeagueId::new(12345);
-        let season = Season::new(2025);
-        let week = Week::new(6);
-
-        let request = create_player_data_request(
-            league_id,
-            season,
-            week,
-            false,
-            None,
-            None,
-            None,
-            None,
-        );
-
-        assert_eq!(request.league_id, league_id);
-        assert_eq!(request.season, season);
-        assert_eq!(request.week, week);
-        assert!(!request.debug);
-        assert!(request.player_names.is_none());
-        assert!(request.positions.is_none());
-        assert!(request.injury_status_filter.is_none());
-        assert!(request.roster_status_filter.is_none());
-    }
-
-    #[test]
     fn test_player_data_request_ext() {
         use crate::{LeagueId, Season, Week};
 
@@ -240,8 +206,12 @@ mod tests {
 
         // Test with some filters
         let player_names = Some(vec!["Josh Allen".to_string()]);
-        let request = PlayerDataRequest::for_actual_data(league_id, season, week)
-            .with_filters(player_names.clone(), None, None, None);
+        let request = PlayerDataRequest::for_actual_data(league_id, season, week).with_filters(
+            player_names.clone(),
+            None,
+            None,
+            None,
+        );
 
         assert_eq!(request.player_names, player_names);
     }
