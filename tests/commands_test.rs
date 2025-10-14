@@ -2,7 +2,9 @@
 
 use espn_ffl::{
     cli::types::position::Position,
-    commands::{common::CommandParamsBuilder, player_data::PlayerDataParams, resolve_league_id},
+    commands::{
+        common::CommandParamsBuilder, league_data::resolve_league_id, player_data::PlayerDataParams,
+    },
     espn::types::PlayerPoints,
     storage::*,
     EspnError, LeagueId, PlayerId, Season, Week, LEAGUE_ID_ENV_VAR,
@@ -185,7 +187,7 @@ fn test_player_data_params_creation() {
         .with_league_id(LeagueId::new(12345))
         .with_player_names(vec!["Test".to_string()])
         .with_positions(vec![Position::QB, Position::RB])
-        .with_debug();
+        .with_debug(true);
 
     assert!(params.debug);
     assert!(!params.base.as_json);
