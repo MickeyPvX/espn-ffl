@@ -359,47 +359,6 @@ impl PlayerDatabase {
         Ok(results)
     }
 
-    /// Cache filtered player data results (used after client-side filtering)
-    pub fn cache_filtered_player_data(
-        &self,
-        results: &[crate::espn::types::PlayerPoints],
-        params: &CommandParams,
-        projected: bool,
-    ) {
-        // Create cache key
-        let cache_key = PlayerDataCacheKey {
-            season: params.season,
-            week: params.week,
-            player_names: params.player_names.clone(),
-            positions: params.positions.clone(),
-            projected,
-            injury_status: params.injury_status.clone(),
-            roster_status: params.roster_status.clone(),
-            fantasy_team_filter: params.fantasy_team_filter.clone(),
-        };
-
-        // Convert PlayerPoints to CachedPlayerDataRow format
-        let cached_data: Vec<CachedPlayerDataRow> = results
-            .iter()
-            .map(|player| {
-                (
-                    player.id,
-                    player.name.clone(),
-                    player.position.clone(),
-                    player.points,
-                    player.active,
-                    player.injured,
-                    player.injury_status.clone(),
-                    player.is_rostered,
-                    player.team_id,
-                    player.team_name.clone(),
-                )
-            })
-            .collect();
-
-        // Cache the results
-        GLOBAL_CACHE.player_data.put(cache_key, cached_data);
-    }
 
     /// Check if we already have data for a specific season/week combination
     /// Returns true if any player data exists for the given filters

@@ -387,10 +387,6 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
         );
     }
 
-    // Cache the filtered results for future use (only when not using cached data)
-    if !use_cached {
-        db.cache_filtered_player_data(&player_points, &params.base, params.projected);
-    }
 
     // Sort descending by points
     player_points.sort_by(|a, b| {
