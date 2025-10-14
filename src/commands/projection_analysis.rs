@@ -104,44 +104,18 @@ pub async fn handle_projection_analysis(params: ProjectionAnalysisParams) -> Res
         }
     };
 
-    // Check if we already have projected data for this week (without filters)
-    let skip_api_call = !params.base.refresh
-        && params.base.player_names.is_none()
-        && params.base.positions.is_none()
-        && db.has_data_for_week(
-            params.base.season,
-            params.base.week,
-            params.base.player_names.as_ref(),
-            None,
-            Some(true),
-        )?; // Check for projected data
-
-    // Fetch ESPN projections for the target week
-    let players_val = if skip_api_call {
-        if !params.base.as_json {
-            println!("Using cached projection data for analysis...");
-        }
-        // Return empty JSON array to skip processing new data but continue with cached analysis
-        serde_json::Value::Array(vec![])
-    } else {
-        if !params.base.as_json {
-            println!(
-                "Fetching fresh ESPN projections for Week {}...",
-                params.base.week.as_u16()
-            );
-        }
-        get_player_data(PlayerDataRequest {
-            debug: false,
-            league_id,
-            player_names: params.base.player_names.clone(),
-            positions: params.base.positions.clone(),
-            season: params.base.season,
-            week: params.base.week,
-            injury_status_filter: params.base.injury_status.clone(),
-            roster_status_filter: params.base.roster_status.clone(),
-        })
-        .await?
-    };
+    // Fetch ESPN projections for the target week (get_player_data handles caching internally)
+    let players_val = get_player_data(PlayerDataRequest {
+        debug: false,
+        league_id,
+        player_names: params.base.player_names.clone(),
+        positions: params.base.positions.clone(),
+        season: params.base.season,
+        week: params.base.week,
+        injury_status_filter: params.base.injury_status.clone(),
+        roster_status_filter: params.base.roster_status.clone(),
+    })
+    .await?;
 
     let players: Vec<crate::espn::types::Player> = serde_json::from_value(players_val)?;
 

@@ -3,6 +3,7 @@
 use super::{models::*, schema::PlayerDatabase};
 use crate::core::cache::{PlayerDataCacheKey, WeeklyStatsCacheKey, GLOBAL_CACHE};
 use crate::{PlayerId, Position, Season, Week};
+use crate::cli::types::filters::{InjuryStatusFilter, RosterStatusFilter, FantasyTeamFilter};
 use anyhow::Result;
 use rusqlite::{params, Row};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -245,6 +246,9 @@ impl PlayerDatabase {
         player_names: Option<&Vec<String>>,
         positions: Option<&Vec<Position>>,
         projected: bool,
+        injury_status: Option<&InjuryStatusFilter>,
+        roster_status: Option<&RosterStatusFilter>,
+        fantasy_team_filter: Option<&FantasyTeamFilter>,
     ) -> Result<Vec<CachedPlayerDataRow>> {
         // Create cache key
         let cache_key = PlayerDataCacheKey {
@@ -253,6 +257,9 @@ impl PlayerDatabase {
             player_names: player_names.cloned(),
             positions: positions.cloned(),
             projected,
+            injury_status: injury_status.cloned(),
+            roster_status: roster_status.cloned(),
+            fantasy_team_filter: fantasy_team_filter.cloned(),
         };
 
         // Check cache first
@@ -356,6 +363,54 @@ impl PlayerDatabase {
         GLOBAL_CACHE.player_data.put(cache_key, results.clone());
 
         Ok(results)
+    }
+
+    /// Cache filtered player data results (used after client-side filtering)
+    pub fn cache_filtered_player_data(
+        &self,
+        results: &[crate::espn::types::PlayerPoints],
+        season: Season,
+        week: Week,
+        player_names: Option<&Vec<String>>,
+        positions: Option<&Vec<Position>>,
+        projected: bool,
+        injury_status: Option<&InjuryStatusFilter>,
+        roster_status: Option<&RosterStatusFilter>,
+        fantasy_team_filter: Option<&FantasyTeamFilter>,
+    ) {
+        // Create cache key
+        let cache_key = PlayerDataCacheKey {
+            season,
+            week,
+            player_names: player_names.cloned(),
+            positions: positions.cloned(),
+            projected,
+            injury_status: injury_status.cloned(),
+            roster_status: roster_status.cloned(),
+            fantasy_team_filter: fantasy_team_filter.cloned(),
+        };
+
+        // Convert PlayerPoints to CachedPlayerDataRow format
+        let cached_data: Vec<CachedPlayerDataRow> = results
+            .iter()
+            .map(|player| {
+                (
+                    player.id,
+                    player.name.clone(),
+                    player.position.clone(),
+                    player.points,
+                    player.active,
+                    player.injured,
+                    player.injury_status.clone(),
+                    player.is_rostered,
+                    player.team_id,
+                    player.team_name.clone(),
+                )
+            })
+            .collect();
+
+        // Cache the results
+        GLOBAL_CACHE.player_data.put(cache_key, cached_data);
     }
 
     /// Check if we already have data for a specific season/week combination

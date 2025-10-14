@@ -169,6 +169,9 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
             params.base.player_names.as_ref(),
             params.base.positions.as_ref(),
             params.projected,
+            params.base.injury_status.as_ref(),
+            params.base.roster_status.as_ref(),
+            params.base.fantasy_team_filter.as_ref(),
         )?;
 
         // Convert cached data to PlayerPoints format with status info in parallel
@@ -387,6 +390,21 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
     {
         apply_status_filters(
             &mut player_points,
+            params.base.injury_status.as_ref(),
+            params.base.roster_status.as_ref(),
+            params.base.fantasy_team_filter.as_ref(),
+        );
+    }
+
+    // Cache the filtered results for future use (only when not using cached data)
+    if !use_cached {
+        db.cache_filtered_player_data(
+            &player_points,
+            params.base.season,
+            params.base.week,
+            params.base.player_names.as_ref(),
+            params.base.positions.as_ref(),
+            params.projected,
             params.base.injury_status.as_ref(),
             params.base.roster_status.as_ref(),
             params.base.fantasy_team_filter.as_ref(),

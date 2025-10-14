@@ -12,7 +12,7 @@ use std::fmt;
 ///
 /// - **Server-side** (efficient): `Active`, `Injured`
 /// - **Client-side** (less efficient): Specific statuses like `Out`, `Doubtful`, etc.
-#[derive(Debug, Clone, clap::ValueEnum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, clap::ValueEnum)]
 pub enum InjuryStatusFilter {
     /// Players who are active/healthy
     Active,
@@ -52,7 +52,7 @@ impl fmt::Display for InjuryStatusFilter {
 ///
 /// Allows filtering players by whether they are currently rostered
 /// on a fantasy team in your league.
-#[derive(Debug, Clone, clap::ValueEnum)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, clap::ValueEnum)]
 pub enum RosterStatusFilter {
     /// Players currently rostered on any team
     Rostered,
@@ -74,7 +74,7 @@ impl fmt::Display for RosterStatusFilter {
 ///
 /// Allows filtering players by the fantasy team they are currently on.
 /// Supports both team name (partial matching) and exact team ID matching.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum FantasyTeamFilter {
     /// Filter by team name (supports partial matching)
     Name(String),

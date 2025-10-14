@@ -96,26 +96,36 @@ impl PlayerDatabase {
             };
 
             // Get individual bias values for this player
-            // Exclude 0-point projections (usually BYE weeks or non-playing situations)
+            // Include all weeks with both projected and actual data
             let mut bias_stmt = self.conn.prepare(
-                "SELECT (s.projected_points - s.actual_points) as bias
+                "SELECT s.projected_points, s.actual_points, (s.projected_points - s.actual_points) as bias
                  FROM player_weekly_stats s
                  WHERE s.player_id = ?
                    AND s.season = ?
                    AND s.week < ?
                    AND s.projected_points IS NOT NULL
-                   AND s.actual_points IS NOT NULL
-                   AND s.projected_points > 0",
+                   AND s.actual_points IS NOT NULL",
             )?;
 
             let bias_rows = bias_stmt.query_map(
                 params![player_id.as_u64(), season.as_u16(), target_week.as_u16()],
-                |row| row.get::<_, f64>(0),
+                |row| {
+                    Ok((
+                        row.get::<_, f64>(0)?, // projected_points
+                        row.get::<_, f64>(1)?, // actual_points
+                        row.get::<_, f64>(2)?, // bias
+                    ))
+                },
             )?;
 
             let mut bias_values = Vec::new();
             for bias_result in bias_rows {
-                bias_values.push(bias_result?);
+                let (projected, actual, bias) = bias_result?;
+                // Skip weeks where both projected and actual are zero (BYE weeks, didn't play)
+                if projected == 0.0 && actual == 0.0 {
+                    continue;
+                }
+                bias_values.push(bias);
             }
 
             let games_count = bias_values.len() as u32;
