@@ -163,16 +163,7 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
         );
 
         // Get cached data directly from database
-        let cached_data = db.get_cached_player_data(
-            params.base.season,
-            params.base.week,
-            params.base.player_names.as_ref(),
-            params.base.positions.as_ref(),
-            params.projected,
-            params.base.injury_status.as_ref(),
-            params.base.roster_status.as_ref(),
-            params.base.fantasy_team_filter.as_ref(),
-        )?;
+        let cached_data = db.get_cached_player_data(&params.base, params.projected)?;
 
         // Convert cached data to PlayerPoints format with status info in parallel
         let cached_player_points: Vec<PlayerPoints> = cached_data
@@ -398,17 +389,7 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
 
     // Cache the filtered results for future use (only when not using cached data)
     if !use_cached {
-        db.cache_filtered_player_data(
-            &player_points,
-            params.base.season,
-            params.base.week,
-            params.base.player_names.as_ref(),
-            params.base.positions.as_ref(),
-            params.projected,
-            params.base.injury_status.as_ref(),
-            params.base.roster_status.as_ref(),
-            params.base.fantasy_team_filter.as_ref(),
-        );
+        db.cache_filtered_player_data(&player_points, &params.base, params.projected);
     }
 
     // Sort descending by points

@@ -384,15 +384,8 @@ fn test_get_cached_player_data_with_injury_and_roster_status() {
     db.upsert_weekly_stats(&stats, false).unwrap();
 
     // Get cached data
-    let cached_data = db
-        .get_cached_player_data(
-            Season::new(2023),
-            Week::new(4), // Use matching week
-            None,
-            None,
-            false, // actual points
-        )
-        .unwrap();
+    let params = espn_ffl::commands::common::CommandParams::new(Season::new(2023), Week::new(4));
+    let cached_data = db.get_cached_player_data(&params, false).unwrap();
 
     // Should have one result
     assert_eq!(cached_data.len(), 1);
@@ -451,27 +444,16 @@ fn test_get_cached_player_data_filters_by_projected() {
     db.upsert_weekly_stats(&actual_stats, true).unwrap(); // force update
 
     // Test projected filter
+    let params = espn_ffl::commands::common::CommandParams::new(Season::new(2023), Week::new(1));
     let projected_data = db
-        .get_cached_player_data(
-            Season::new(2023),
-            Week::new(1),
-            None,
-            None,
-            true, // projected = true
-        )
+        .get_cached_player_data(&params, true) // projected = true
         .unwrap();
     assert_eq!(projected_data.len(), 1);
     assert_eq!(projected_data[0].3, 20.0); // Should return projected points
 
     // Test actual filter
     let actual_data = db
-        .get_cached_player_data(
-            Season::new(2023),
-            Week::new(1),
-            None,
-            None,
-            false, // projected = false
-        )
+        .get_cached_player_data(&params, false) // projected = false
         .unwrap();
     assert_eq!(actual_data.len(), 1);
     assert_eq!(actual_data[0].3, 18.5); // Should return actual points

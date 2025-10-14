@@ -21,8 +21,8 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use crate::cli::types::filters::{FantasyTeamFilter, InjuryStatusFilter, RosterStatusFilter};
 use crate::{LeagueId, PlayerId, Position, Season, Week};
-use crate::cli::types::filters::{InjuryStatusFilter, RosterStatusFilter, FantasyTeamFilter};
 
 /// Path: ~/.cache/league_settings-{season}-{league_id}.json
 pub fn league_settings_path(season: u16, league_id: u32) -> PathBuf {
@@ -125,7 +125,9 @@ impl CacheKey for PlayerDataCacheKey {
             .as_ref()
             .map(|filter| match filter {
                 FantasyTeamFilter::Id(id) => format!("team_id_{}", id),
-                FantasyTeamFilter::Name(name) => format!("team_name_{}", name.to_lowercase().replace(' ', "_")),
+                FantasyTeamFilter::Name(name) => {
+                    format!("team_name_{}", name.to_lowercase().replace(' ', "_"))
+                }
             })
             .unwrap_or_else(|| "all_teams".to_string());
 
@@ -476,6 +478,9 @@ mod tests {
             player_names: Some(vec!["Josh Allen".to_string()]),
             positions: None,
             projected: false,
+            injury_status: None,
+            roster_status: None,
+            fantasy_team_filter: None,
         };
 
         let file_key = key.to_file_key();

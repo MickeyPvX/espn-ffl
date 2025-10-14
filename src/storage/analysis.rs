@@ -140,20 +140,26 @@ impl PlayerDatabase {
             // Start with ESPN's projection
             let base_projection = *espn_projection;
 
-            // Simple bias adjustment - trust player-specific patterns
-            let sample_factor = games_count as f64 / (games_count as f64 + 2.0);
-
-            // Only limit extreme biases
-            let bias_magnitude = average_bias.abs();
-            let magnitude_factor = if bias_magnitude > 10.0 {
-                10.0 / bias_magnitude
+            // If ESPN projects 0 points, don't adjust - player is likely not playing or on bye
+            let (bias_adjustment, estimated_points) = if base_projection == 0.0 {
+                (0.0, 0.0)
             } else {
-                1.0
-            };
+                // Simple bias adjustment - trust player-specific patterns
+                let sample_factor = games_count as f64 / (games_count as f64 + 2.0);
 
-            let adjustment_strength = sample_factor * magnitude_factor;
-            let bias_adjustment = -average_bias * adjustment_strength * bias_strength;
-            let estimated_points = (base_projection + bias_adjustment).max(0.0);
+                // Only limit extreme biases
+                let bias_magnitude = average_bias.abs();
+                let magnitude_factor = if bias_magnitude > 10.0 {
+                    10.0 / bias_magnitude
+                } else {
+                    1.0
+                };
+
+                let adjustment_strength = sample_factor * magnitude_factor;
+                let bias_adjustment = -average_bias * adjustment_strength * bias_strength;
+                let estimated_points = (base_projection + bias_adjustment).max(0.0);
+                (bias_adjustment, estimated_points)
+            };
 
             // Confidence based on pattern consistency
             let bias_variance = if bias_values.len() > 1 {
@@ -171,7 +177,9 @@ impl PlayerDatabase {
             let confidence = (0.3 + 0.5 * consistency_factor).clamp(0.25, 0.85);
 
             // Generate simple reasoning
-            let reasoning = if bias_adjustment.abs() > 1.0 {
+            let reasoning = if base_projection == 0.0 {
+                "ESPN projects 0 pts - player not expected to play or on bye week".to_string()
+            } else if bias_adjustment.abs() > 1.0 {
                 if average_bias > 0.0 {
                     format!(
                         "Avg bias: ESPN overestimates by {:.1} pts ({} games, {:.1} std) - adjusted down {:.1} pts ({}% confidence)",
