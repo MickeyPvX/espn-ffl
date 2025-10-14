@@ -387,7 +387,6 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
         );
     }
 
-
     // Sort descending by points
     player_points.sort_by(|a, b| {
         b.points

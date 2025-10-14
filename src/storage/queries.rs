@@ -359,7 +359,6 @@ impl PlayerDatabase {
         Ok(results)
     }
 
-
     /// Check if we already have data for a specific season/week combination
     /// Returns true if any player data exists for the given filters
     pub fn has_data_for_week(
