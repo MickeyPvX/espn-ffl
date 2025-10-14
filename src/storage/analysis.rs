@@ -96,26 +96,36 @@ impl PlayerDatabase {
             };
 
             // Get individual bias values for this player
-            // Exclude 0-point projections (usually BYE weeks or non-playing situations)
+            // Include all weeks with both projected and actual data
             let mut bias_stmt = self.conn.prepare(
-                "SELECT (s.projected_points - s.actual_points) as bias
+                "SELECT s.projected_points, s.actual_points, (s.projected_points - s.actual_points) as bias
                  FROM player_weekly_stats s
                  WHERE s.player_id = ?
                    AND s.season = ?
                    AND s.week < ?
                    AND s.projected_points IS NOT NULL
-                   AND s.actual_points IS NOT NULL
-                   AND s.projected_points > 0",
+                   AND s.actual_points IS NOT NULL",
             )?;
 
             let bias_rows = bias_stmt.query_map(
                 params![player_id.as_u64(), season.as_u16(), target_week.as_u16()],
-                |row| row.get::<_, f64>(0),
+                |row| {
+                    Ok((
+                        row.get::<_, f64>(0)?, // projected_points
+                        row.get::<_, f64>(1)?, // actual_points
+                        row.get::<_, f64>(2)?, // bias
+                    ))
+                },
             )?;
 
             let mut bias_values = Vec::new();
             for bias_result in bias_rows {
-                bias_values.push(bias_result?);
+                let (projected, actual, bias) = bias_result?;
+                // Skip weeks where both projected and actual are zero (BYE weeks, didn't play)
+                if projected == 0.0 && actual == 0.0 {
+                    continue;
+                }
+                bias_values.push(bias);
             }
 
             let games_count = bias_values.len() as u32;
@@ -130,20 +140,26 @@ impl PlayerDatabase {
             // Start with ESPN's projection
             let base_projection = *espn_projection;
 
-            // Simple bias adjustment - trust player-specific patterns
-            let sample_factor = games_count as f64 / (games_count as f64 + 2.0);
-
-            // Only limit extreme biases
-            let bias_magnitude = average_bias.abs();
-            let magnitude_factor = if bias_magnitude > 10.0 {
-                10.0 / bias_magnitude
+            // If ESPN projects 0 points, don't adjust - player is likely not playing or on bye
+            let (bias_adjustment, estimated_points) = if base_projection == 0.0 {
+                (0.0, 0.0)
             } else {
-                1.0
-            };
+                // Simple bias adjustment - trust player-specific patterns
+                let sample_factor = games_count as f64 / (games_count as f64 + 2.0);
 
-            let adjustment_strength = sample_factor * magnitude_factor;
-            let bias_adjustment = -average_bias * adjustment_strength * bias_strength;
-            let estimated_points = (base_projection + bias_adjustment).max(0.0);
+                // Only limit extreme biases
+                let bias_magnitude = average_bias.abs();
+                let magnitude_factor = if bias_magnitude > 10.0 {
+                    10.0 / bias_magnitude
+                } else {
+                    1.0
+                };
+
+                let adjustment_strength = sample_factor * magnitude_factor;
+                let bias_adjustment = -average_bias * adjustment_strength * bias_strength;
+                let estimated_points = (base_projection + bias_adjustment).max(0.0);
+                (bias_adjustment, estimated_points)
+            };
 
             // Confidence based on pattern consistency
             let bias_variance = if bias_values.len() > 1 {
@@ -161,7 +177,9 @@ impl PlayerDatabase {
             let confidence = (0.3 + 0.5 * consistency_factor).clamp(0.25, 0.85);
 
             // Generate simple reasoning
-            let reasoning = if bias_adjustment.abs() > 1.0 {
+            let reasoning = if base_projection == 0.0 {
+                "ESPN projects 0 pts - player not expected to play or on bye week".to_string()
+            } else if bias_adjustment.abs() > 1.0 {
                 if average_bias > 0.0 {
                     format!(
                         "Avg bias: ESPN overestimates by {:.1} pts ({} games, {:.1} std) - adjusted down {:.1} pts ({}% confidence)",

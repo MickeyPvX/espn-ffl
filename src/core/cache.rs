@@ -21,6 +21,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use crate::cli::types::filters::{FantasyTeamFilter, InjuryStatusFilter, RosterStatusFilter};
 use crate::{LeagueId, PlayerId, Position, Season, Week};
 
 /// Path: ~/.cache/league_settings-{season}-{league_id}.json
@@ -79,6 +80,9 @@ pub struct PlayerDataCacheKey {
     pub player_names: Option<Vec<String>>,
     pub positions: Option<Vec<Position>>,
     pub projected: bool,
+    pub injury_status: Option<InjuryStatusFilter>,
+    pub roster_status: Option<RosterStatusFilter>,
+    pub fantasy_team_filter: Option<FantasyTeamFilter>,
 }
 
 impl CacheKey for PlayerDataCacheKey {
@@ -104,12 +108,38 @@ impl CacheKey for PlayerDataCacheKey {
             })
             .unwrap_or_else(|| "all_pos".to_string());
 
+        let injury_hash = self
+            .injury_status
+            .as_ref()
+            .map(|status| format!("inj_{}", status.to_string().to_lowercase()))
+            .unwrap_or_else(|| "all_inj".to_string());
+
+        let roster_hash = self
+            .roster_status
+            .as_ref()
+            .map(|status| format!("ros_{}", status.to_string().to_lowercase()))
+            .unwrap_or_else(|| "all_ros".to_string());
+
+        let team_hash = self
+            .fantasy_team_filter
+            .as_ref()
+            .map(|filter| match filter {
+                FantasyTeamFilter::Id(id) => format!("team_id_{}", id),
+                FantasyTeamFilter::Name(name) => {
+                    format!("team_name_{}", name.to_lowercase().replace(' ', "_"))
+                }
+            })
+            .unwrap_or_else(|| "all_teams".to_string());
+
         format!(
-            "player_data_s{}_w{}_{}_{}_{}",
+            "player_data_s{}_w{}_{}_{}_{}_{}_{}_{}",
             self.season.as_u16(),
             self.week.as_u16(),
             names_hash,
             positions_hash,
+            injury_hash,
+            roster_hash,
+            team_hash,
             if self.projected { "proj" } else { "actual" }
         )
     }
@@ -448,6 +478,9 @@ mod tests {
             player_names: Some(vec!["Josh Allen".to_string()]),
             positions: None,
             projected: false,
+            injury_status: None,
+            roster_status: None,
+            fantasy_team_filter: None,
         };
 
         let file_key = key.to_file_key();

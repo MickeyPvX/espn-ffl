@@ -1,6 +1,7 @@
 //! Basic database query operations
 
 use super::{models::*, schema::PlayerDatabase};
+use crate::commands::common::CommandParams;
 use crate::core::cache::{PlayerDataCacheKey, WeeklyStatsCacheKey, GLOBAL_CACHE};
 use crate::{PlayerId, Position, Season, Week};
 use anyhow::Result;
@@ -240,19 +241,19 @@ impl PlayerDatabase {
     /// Get cached player data for a specific season/week combination with filters
     pub fn get_cached_player_data(
         &self,
-        season: Season,
-        week: Week,
-        player_names: Option<&Vec<String>>,
-        positions: Option<&Vec<Position>>,
+        params: &CommandParams,
         projected: bool,
     ) -> Result<Vec<CachedPlayerDataRow>> {
         // Create cache key
         let cache_key = PlayerDataCacheKey {
-            season,
-            week,
-            player_names: player_names.cloned(),
-            positions: positions.cloned(),
+            season: params.season,
+            week: params.week,
+            player_names: params.player_names.clone(),
+            positions: params.positions.clone(),
             projected,
+            injury_status: params.injury_status.clone(),
+            roster_status: params.roster_status.clone(),
+            fantasy_team_filter: params.fantasy_team_filter.clone(),
         };
 
         // Check cache first
@@ -269,10 +270,10 @@ impl PlayerDatabase {
              WHERE pws.season = ? AND pws.week = ?",
         );
 
-        let mut params: Vec<Box<dyn rusqlite::ToSql>> = vec![
+        let mut sql_params: Vec<Box<dyn rusqlite::ToSql>> = vec![
             Box::new(if projected { 1 } else { 0 }),
-            Box::new(season.as_u16()),
-            Box::new(week.as_u16()),
+            Box::new(params.season.as_u16()),
+            Box::new(params.week.as_u16()),
         ];
 
         // Add projected/actual filter
@@ -283,7 +284,7 @@ impl PlayerDatabase {
         }
 
         // Add player name filter if provided
-        if let Some(names) = player_names {
+        if let Some(names) = &params.player_names {
             if !names.is_empty() {
                 query.push_str(" AND (");
                 for (i, name) in names.iter().enumerate() {
@@ -291,14 +292,14 @@ impl PlayerDatabase {
                         query.push_str(" OR ");
                     }
                     query.push_str("p.name LIKE ?");
-                    params.push(Box::new(format!("%{}%", name)));
+                    sql_params.push(Box::new(format!("%{}%", name)));
                 }
                 query.push(')');
             }
         }
 
         // Add position filter if provided
-        if let Some(pos_list) = positions {
+        if let Some(pos_list) = &params.positions {
             if !pos_list.is_empty() {
                 query.push_str(" AND p.position IN (");
                 for (i, pos) in pos_list.iter().enumerate() {
@@ -306,7 +307,7 @@ impl PlayerDatabase {
                         query.push_str(", ");
                     }
                     query.push('?');
-                    params.push(Box::new(pos.to_string()));
+                    sql_params.push(Box::new(pos.to_string()));
                 }
                 query.push(')');
             }
@@ -316,7 +317,7 @@ impl PlayerDatabase {
 
         let mut stmt = self.conn.prepare(&query)?;
         let rows = stmt.query_map(
-            rusqlite::params_from_iter(params.iter().map(|p| p.as_ref())),
+            rusqlite::params_from_iter(sql_params.iter().map(|p| p.as_ref())),
             |row| {
                 let injury_status_str: Option<String> = row.get(6)?;
                 let injury_status = injury_status_str
