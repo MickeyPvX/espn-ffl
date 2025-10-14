@@ -7,8 +7,8 @@ use crate::{LeagueId, Result, Season, Week};
 
 use super::{
     common::CommandParamsBuilder,
+    league_data::resolve_league_id,
     player_data::{handle_player_data, PlayerDataParams},
-    resolve_league_id,
 };
 
 /// Update all player data (actual and projected) for weeks 1 through the specified week

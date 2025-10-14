@@ -31,8 +31,8 @@ use crate::{
 
 use super::{
     common::{CommandParams, CommandParamsBuilder},
+    league_data::resolve_league_id,
     player_filters::{apply_status_filters, filter_and_convert_players},
-    resolve_league_id,
 };
 use crate::espn::types::CachedPlayerData;
 use rayon::prelude::*;
@@ -59,9 +59,9 @@ impl PlayerDataParams {
         }
     }
 
-    /// Enable debug output.
-    pub fn with_debug(mut self) -> Self {
-        self.debug = true;
+    /// Set debug output.
+    pub fn with_debug(mut self, debug: bool) -> Self {
+        self.debug = debug;
         self
     }
 }

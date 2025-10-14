@@ -36,35 +36,16 @@ async fn main() -> Result<()> {
             refresh,
         } => {
             let fantasy_team_filter = filters.get_fantasy_team_filter();
-            let mut params = PlayerDataParams::new(filters.season, filters.week, projected);
-
-            if let Some(league_id) = filters.league_id {
-                params = params.with_league_id(league_id);
-            }
-            if let Some(player_names) = filters.player_name {
-                params = params.with_player_names(player_names);
-            }
-            if let Some(positions) = filters.positions {
-                params = params.with_positions(positions);
-            }
-            if let Some(injury_status) = filters.injury_status {
-                params = params.with_injury_filter(injury_status);
-            }
-            if let Some(roster_status) = filters.roster_status {
-                params = params.with_roster_filter(roster_status);
-            }
-            if let Some(team_filter) = fantasy_team_filter {
-                params = params.with_fantasy_team_filter(team_filter);
-            }
-            if json {
-                params = params.with_json_output();
-            }
-            if refresh {
-                params = params.with_refresh();
-            }
-            if debug {
-                params = params.with_debug();
-            }
+            let mut params = PlayerDataParams::new(filters.season, filters.week, projected)
+                .with_optional_league_id(filters.league_id)
+                .with_optional_player_names(filters.player_name)
+                .with_optional_positions(filters.positions)
+                .with_optional_injury_filter(filters.injury_status)
+                .with_optional_roster_filter(filters.roster_status)
+                .with_optional_fantasy_team_filter(fantasy_team_filter)
+                .with_json_output_if(json)
+                .with_refresh_if(refresh)
+                .with_debug(debug);
 
             params.refresh_positions = refresh_positions;
             params.clear_db = clear_db;
@@ -82,33 +63,15 @@ async fn main() -> Result<()> {
             let bias_factor = bias_strength.unwrap_or(1.0);
             let fantasy_team_filter = filters.get_fantasy_team_filter();
 
-            let mut params =
-                ProjectionAnalysisParams::new(filters.season, filters.week, bias_factor);
-
-            if let Some(league_id) = filters.league_id {
-                params = params.with_league_id(league_id);
-            }
-            if let Some(player_names) = filters.player_name {
-                params = params.with_player_names(player_names);
-            }
-            if let Some(positions) = filters.positions {
-                params = params.with_positions(positions);
-            }
-            if let Some(injury_status) = filters.injury_status {
-                params = params.with_injury_filter(injury_status);
-            }
-            if let Some(roster_status) = filters.roster_status {
-                params = params.with_roster_filter(roster_status);
-            }
-            if let Some(team_filter) = fantasy_team_filter {
-                params = params.with_fantasy_team_filter(team_filter);
-            }
-            if json {
-                params = params.with_json_output();
-            }
-            if refresh {
-                params = params.with_refresh();
-            }
+            let params = ProjectionAnalysisParams::new(filters.season, filters.week, bias_factor)
+                .with_optional_league_id(filters.league_id)
+                .with_optional_player_names(filters.player_name)
+                .with_optional_positions(filters.positions)
+                .with_optional_injury_filter(filters.injury_status)
+                .with_optional_roster_filter(filters.roster_status)
+                .with_optional_fantasy_team_filter(fantasy_team_filter)
+                .with_json_output_if(json)
+                .with_refresh_if(refresh);
 
             handle_projection_analysis(params).await?
         }

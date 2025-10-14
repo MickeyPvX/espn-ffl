@@ -183,6 +183,94 @@ pub trait CommandParamsBuilder {
         self.base_mut().fantasy_team_filter = Some(filter);
         self
     }
+
+    /// Set league ID if provided
+    fn with_optional_league_id(mut self, league_id: Option<LeagueId>) -> Self
+    where
+        Self: Sized,
+    {
+        if let Some(id) = league_id {
+            self.base_mut().league_id = Some(id);
+        }
+        self
+    }
+
+    /// Filter by player names if provided
+    fn with_optional_player_names(mut self, names: Option<Vec<String>>) -> Self
+    where
+        Self: Sized,
+    {
+        if let Some(names) = names {
+            self.base_mut().player_names = Some(names);
+        }
+        self
+    }
+
+    /// Filter by positions if provided
+    fn with_optional_positions(mut self, positions: Option<Vec<Position>>) -> Self
+    where
+        Self: Sized,
+    {
+        if let Some(positions) = positions {
+            self.base_mut().positions = Some(positions);
+        }
+        self
+    }
+
+    /// Filter by injury status if provided
+    fn with_optional_injury_filter(mut self, filter: Option<InjuryStatusFilter>) -> Self
+    where
+        Self: Sized,
+    {
+        if let Some(filter) = filter {
+            self.base_mut().injury_status = Some(filter);
+        }
+        self
+    }
+
+    /// Filter by roster status if provided
+    fn with_optional_roster_filter(mut self, filter: Option<RosterStatusFilter>) -> Self
+    where
+        Self: Sized,
+    {
+        if let Some(filter) = filter {
+            self.base_mut().roster_status = Some(filter);
+        }
+        self
+    }
+
+    /// Filter by fantasy team if provided
+    fn with_optional_fantasy_team_filter(mut self, filter: Option<FantasyTeamFilter>) -> Self
+    where
+        Self: Sized,
+    {
+        if let Some(filter) = filter {
+            self.base_mut().fantasy_team_filter = Some(filter);
+        }
+        self
+    }
+
+    /// Set JSON output conditionally
+    fn with_json_output_if(mut self, json: bool) -> Self
+    where
+        Self: Sized,
+    {
+        if json {
+            self.base_mut().as_json = true;
+        }
+        self
+    }
+
+    /// Set refresh conditionally
+    fn with_refresh_if(mut self, refresh: bool) -> Self
+    where
+        Self: Sized,
+    {
+        if refresh {
+            self.base_mut().refresh = true;
+        }
+        self
+    }
 }
 
 /// Context containing common resources needed by most commands

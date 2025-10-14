@@ -14,11 +14,11 @@ use crate::{
 
 use super::{
     common::{CommandParams, CommandParamsBuilder},
+    league_data::resolve_league_id,
     player_filters::{
         filter_and_convert_players, matches_fantasy_team_filter, matches_injury_filter,
         matches_roster_filter,
     },
-    resolve_league_id,
 };
 use rayon::prelude::*;
 
