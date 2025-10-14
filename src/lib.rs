@@ -15,7 +15,7 @@
 //! ## Quick Start
 //!
 //! ```rust,no_run
-//! use espn_ffl::{LeagueId, Season, Week, Position, commands::player_data::*};
+//! use espn_ffl::{LeagueId, Season, Week, Position, commands::{common::CommandParamsBuilder, player_data::*}};
 //!
 //! # async fn example() -> espn_ffl::Result<()> {
 //! // Get player data for current week

@@ -6,8 +6,9 @@
 use crate::{LeagueId, Result, Season, Week};
 
 use super::{
+    common::CommandParamsBuilder,
+    league_data::resolve_league_id,
     player_data::{handle_player_data, PlayerDataParams},
-    resolve_league_id,
 };
 
 /// Update all player data (actual and projected) for weeks 1 through the specified week
@@ -53,44 +54,18 @@ pub async fn handle_update_all_data(
         if verbose {
             println!("Fetching actual player data...");
         }
-        let actual_params = PlayerDataParams {
-            league_id: Some(league_id),
-            player_name: None,
-            positions: None,
-            season,
-            week,
-            injury_status: None,
-            roster_status: None,
-            fantasy_team_filter: None,
-            debug: false,
-            as_json: false,
-            refresh: true, // Force fresh data
-            clear_db: false,
-            refresh_positions: false,
-            projected: false,
-        };
+        let actual_params = PlayerDataParams::new(season, week, false)
+            .with_league_id(league_id)
+            .with_refresh();
         handle_player_data(actual_params).await?;
 
         // Fetch projected data
         if verbose {
             println!("Fetching projected player data...");
         }
-        let projected_params = PlayerDataParams {
-            league_id: Some(league_id),
-            player_name: None,
-            positions: None,
-            season,
-            week,
-            injury_status: None,
-            roster_status: None,
-            fantasy_team_filter: None,
-            debug: false,
-            as_json: false,
-            refresh: true, // Force fresh data
-            clear_db: false,
-            refresh_positions: false,
-            projected: true,
-        };
+        let projected_params = PlayerDataParams::new(season, week, true)
+            .with_league_id(league_id)
+            .with_refresh();
         handle_player_data(projected_params).await?;
 
         total_weeks_processed += 1;
