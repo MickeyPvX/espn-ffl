@@ -49,36 +49,29 @@ pub fn filter_and_convert_players(
 
             // Apply position filtering on the client side to ensure accuracy
             if let Some(positions) = &position_filter {
-                let player_position = if player.default_position_id < 0 {
-                    None
-                } else {
-                    Position::try_from(player.default_position_id as u8).ok()
+                let player_position = (player.default_position_id >= 0)
+                    .then(|| Position::try_from(player.default_position_id as u8).ok())
+                    .flatten();
+
+                let Some(pos) = player_position else {
+                    return None; // Player has no valid position, exclude it
                 };
 
-                if let Some(pos) = player_position {
-                    let matches = positions.iter().any(|filter_pos| {
-                        // For FLEX, check if player position is eligible
-                        if *filter_pos == Position::FLEX {
-                            filter_pos.get_all_position_ids().contains(&pos.to_u8())
-                        } else {
-                            *filter_pos == pos
-                        }
-                    });
-                    if !matches {
-                        return None;
+                let matches = positions.iter().any(|filter_pos| {
+                    if *filter_pos == Position::FLEX {
+                        filter_pos.get_all_position_ids().contains(&pos.to_u8())
+                    } else {
+                        *filter_pos == pos
                     }
-                } else {
-                    // Player has no valid position, exclude it
+                });
+
+                if !matches {
                     return None;
                 }
             }
 
-            // Handle negative IDs for D/ST teams by converting to positive
-            let player_id = if player.id < 0 {
-                PlayerId::new((-player.id) as u64)
-            } else {
-                PlayerId::new(player.id as u64)
-            };
+            // Preserve original ESPN player IDs (including negative IDs for D/ST teams)
+            let player_id = PlayerId::new(player.id);
 
             Some(FilteredPlayer {
                 player_id,

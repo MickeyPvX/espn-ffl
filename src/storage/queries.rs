@@ -28,12 +28,40 @@ impl PlayerDatabase {
             "INSERT OR REPLACE INTO players (player_id, name, position, team)
              VALUES (?, ?, ?, ?)",
             params![
-                player.player_id.as_u64(),
+                player.player_id.as_i64(),
                 player.name,
                 player.position,
                 player.team
             ],
         )?;
+        Ok(())
+    }
+
+    /// Update players table with ESPN player data
+    /// Converts ESPN player format to database format and upserts
+    pub fn update_players_from_espn(
+        &mut self,
+        espn_players: &[crate::espn::types::Player],
+    ) -> Result<()> {
+        for player in espn_players {
+            let player_id = crate::PlayerId::new(player.id);
+
+            let db_player = Player {
+                player_id,
+                name: player
+                    .full_name
+                    .clone()
+                    .unwrap_or_else(|| format!("Player {}", player.id)),
+                position: (player.default_position_id >= 0)
+                    .then(|| Position::try_from(player.default_position_id as u8).ok())
+                    .flatten()
+                    .map(|p| p.to_string())
+                    .unwrap_or_else(|| "UNKNOWN".to_string()),
+                team: None, // ESPN API doesn't provide team in this format
+            };
+
+            self.upsert_player(&db_player)?;
+        }
         Ok(())
     }
 
@@ -57,7 +85,7 @@ impl PlayerDatabase {
                          COALESCE((SELECT created_at FROM player_weekly_stats
                                   WHERE player_id = ? AND season = ? AND week = ?), ?), ?)",
                 params![
-                    stats.player_id.as_u64(),
+                    stats.player_id.as_i64(),
                     stats.season.as_u16(),
                     stats.week.as_u16(),
                     stats.projected_points,
@@ -68,7 +96,7 @@ impl PlayerDatabase {
                     stats.is_rostered,
                     stats.fantasy_team_id,
                     stats.fantasy_team_name,
-                    stats.player_id.as_u64(),
+                    stats.player_id.as_i64(),
                     stats.season.as_u16(),
                     stats.week.as_u16(),
                     now,
@@ -85,7 +113,7 @@ impl PlayerDatabase {
                   created_at, updated_at)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 params![
-                    stats.player_id.as_u64(),
+                    stats.player_id.as_i64(),
                     stats.season.as_u16(),
                     stats.week.as_u16(),
                     stats.projected_points,
@@ -120,7 +148,7 @@ impl PlayerDatabase {
         )?;
 
         let result = stmt.query_row(
-            params![player_id.as_u64(), season.as_u16(), week.as_u16()],
+            params![player_id.as_i64(), season.as_u16(), week.as_u16()],
             |row| self.row_to_weekly_stats(row),
         );
 
@@ -148,7 +176,7 @@ impl PlayerDatabase {
              ORDER BY week",
         )?;
 
-        let rows = stmt.query_map(params![player_id.as_u64(), season.as_u16()], |row| {
+        let rows = stmt.query_map(params![player_id.as_i64(), season.as_u16()], |row| {
             self.row_to_weekly_stats(row)
         })?;
 
@@ -185,33 +213,33 @@ impl PlayerDatabase {
                      COALESCE((SELECT created_at FROM player_weekly_stats
                               WHERE player_id = ? AND season = ? AND week = ?), ?), ?)",
             params![
-                stats.player_id.as_u64(),
+                stats.player_id.as_i64(),
                 stats.season.as_u16(),
                 stats.week.as_u16(),
                 stats.projected_points,
-                stats.player_id.as_u64(),
+                stats.player_id.as_i64(),
                 stats.season.as_u16(),
                 stats.week.as_u16(),
                 stats.actual_points,
-                stats.player_id.as_u64(),
+                stats.player_id.as_i64(),
                 stats.season.as_u16(),
                 stats.week.as_u16(),
                 stats.active,
-                stats.player_id.as_u64(),
+                stats.player_id.as_i64(),
                 stats.season.as_u16(),
                 stats.week.as_u16(),
                 stats.injured,
-                stats.player_id.as_u64(),
+                stats.player_id.as_i64(),
                 stats.season.as_u16(),
                 stats.week.as_u16(),
                 stats.injury_status.as_ref().map(|s| s.to_string()),
-                stats.player_id.as_u64(),
+                stats.player_id.as_i64(),
                 stats.season.as_u16(),
                 stats.week.as_u16(),
                 stats.is_rostered,
                 stats.fantasy_team_id,
                 stats.fantasy_team_name,
-                stats.player_id.as_u64(),
+                stats.player_id.as_i64(),
                 stats.season.as_u16(),
                 stats.week.as_u16(),
                 now,
@@ -427,13 +455,10 @@ impl PlayerDatabase {
         let all_players = self.get_all_players()?;
 
         for player in all_players {
-            let player_id_i64 = player.player_id.as_u64() as i64;
-            let negative_player_id_i64 = -(player_id_i64);
+            let player_id_i64 = player.player_id.as_i64();
 
-            // Check both positive and negative versions of the ID
-            let roster_info = player_to_team
-                .get(&player_id_i64)
-                .or_else(|| player_to_team.get(&negative_player_id_i64));
+            // Check exact player ID match (no positive/negative conversion)
+            let roster_info = player_to_team.get(&player_id_i64);
 
             let (is_rostered, team_id, team_name) =
                 if let Some((team_id, team_name, _team_abbrev)) = roster_info {

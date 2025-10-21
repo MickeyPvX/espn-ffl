@@ -50,14 +50,14 @@ impl FromStr for LeagueId {
 
 /// Type-safe wrapper for Player IDs
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct PlayerId(pub u64);
+pub struct PlayerId(pub i64);
 
 impl PlayerId {
-    pub fn new(id: u64) -> Self {
+    pub fn new(id: i64) -> Self {
         Self(id)
     }
 
-    pub fn as_u64(&self) -> u64 {
+    pub fn as_i64(&self) -> i64 {
         self.0
     }
 }

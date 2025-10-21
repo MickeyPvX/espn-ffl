@@ -78,7 +78,7 @@ impl PlayerDatabase {
                 .conn
                 .prepare("SELECT name, position, team FROM players WHERE player_id = ?")?;
 
-            let player_info = player_stmt.query_row(params![player_id.as_u64()], |row| {
+            let player_info = player_stmt.query_row(params![player_id.as_i64()], |row| {
                 Ok((
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
@@ -108,7 +108,7 @@ impl PlayerDatabase {
             )?;
 
             let bias_rows = bias_stmt.query_map(
-                params![player_id.as_u64(), season.as_u16(), target_week.as_u16()],
+                params![player_id.as_i64(), season.as_u16(), target_week.as_u16()],
                 |row| {
                     Ok((
                         row.get::<_, f64>(0)?, // projected_points
@@ -231,12 +231,26 @@ impl PlayerDatabase {
                 continue;
             }
 
-            // No historical data, use ESPN projection as-is
+            // No historical data, but try to get player info from players table
+            let mut player_stmt = self
+                .conn
+                .prepare("SELECT name, position, team FROM players WHERE player_id = ?")?;
+
+            let (name, position, team) = player_stmt
+                .query_row(params![player_id.as_i64()], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                    ))
+                })
+                .unwrap_or_else(|_| ("Unknown".to_string(), "Unknown".to_string(), None));
+
             estimates.push(PerformanceEstimate {
                 player_id: *player_id,
-                name: "Unknown".to_string(),
-                position: "Unknown".to_string(),
-                team: None,
+                name,
+                position,
+                team,
                 espn_projection: *espn_projection,
                 bias_adjustment: 0.0,
                 estimated_points: *espn_projection,

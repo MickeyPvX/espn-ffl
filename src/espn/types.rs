@@ -50,11 +50,66 @@ pub struct ScoringSettings {
     pub scoring_items: Vec<ScoringItem>,
 }
 
+/// Roster settings from league configuration
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct RosterSettings {
+    #[serde(rename = "lineupSlotCounts")]
+    pub lineup_slot_counts: std::collections::HashMap<String, u32>,
+    #[serde(rename = "positionLimits")]
+    pub position_limits: std::collections::HashMap<String, i32>,
+}
+
 /// Root we deserialize out of mSettings
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct LeagueSettings {
     #[serde(rename = "scoringSettings")]
     pub scoring_settings: ScoringSettings,
+    #[serde(rename = "rosterSettings")]
+    pub roster_settings: RosterSettings,
+}
+
+impl LeagueSettings {
+    /// Get all position IDs that are allowed in this league
+    /// Combines lineupSlotCounts and positionLimits, including known aliases
+    pub fn get_allowed_position_ids(&self) -> std::collections::HashSet<u8> {
+        let mut position_ids = std::collections::HashSet::new();
+
+        // Add all IDs from lineupSlotCounts
+        for slot_id_str in self.roster_settings.lineup_slot_counts.keys() {
+            if let Ok(id) = slot_id_str.parse::<u8>() {
+                position_ids.insert(id);
+            }
+        }
+
+        // Add all IDs from positionLimits
+        for pos_id_str in self.roster_settings.position_limits.keys() {
+            if let Ok(id) = pos_id_str.parse::<u8>() {
+                position_ids.insert(id);
+            }
+        }
+
+        // Add known aliases for positions we found
+        let found_ids: Vec<u8> = position_ids.iter().copied().collect();
+        for id in found_ids {
+            match id {
+                0 | 1 => {
+                    position_ids.insert(0);
+                    position_ids.insert(1);
+                } // QB aliases
+                4 | 6 => {
+                    position_ids.insert(4);
+                    position_ids.insert(6);
+                } // TE aliases
+                5 | 17 => {
+                    position_ids.insert(5);
+                    position_ids.insert(17);
+                } // K aliases
+                _ => {} // No aliases for other positions
+            }
+        }
+
+        position_ids
+    }
 }
 
 /// Top-level envelope for mSettings
@@ -301,14 +356,10 @@ impl LeagueData {
         let player_to_team = self.create_player_roster_map();
 
         for player in player_points.iter_mut() {
-            let player_id_i64 = player.id.as_u64() as i64;
-            let negative_player_id_i64 = -(player_id_i64);
+            let player_id_i64 = player.id.as_i64();
 
-            // Check both positive and negative versions of the ID
-            // D/ST teams often have negative IDs in roster data but positive IDs in player data
-            let roster_info = player_to_team
-                .get(&player_id_i64)
-                .or_else(|| player_to_team.get(&negative_player_id_i64));
+            // Check exact player ID match (no positive/negative conversion)
+            let roster_info = player_to_team.get(&player_id_i64);
 
             if let Some((team_id, team_name, _team_abbrev)) = roster_info {
                 player.is_rostered = Some(true);

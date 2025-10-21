@@ -157,7 +157,7 @@ impl CacheKey for WeeklyStatsCacheKey {
     fn to_file_key(&self) -> String {
         format!(
             "weekly_stats_p{}_s{}_w{}",
-            self.player_id.as_u64(),
+            self.player_id.as_i64(),
             self.season.as_u16(),
             self.week.as_u16()
         )

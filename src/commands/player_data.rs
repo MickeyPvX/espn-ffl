@@ -25,7 +25,7 @@ use crate::{
         http::{get_player_data, update_player_points_with_roster_data, PlayerDataRequest},
         types::PlayerPoints,
     },
-    storage::{Player, PlayerDatabase, PlayerWeeklyStats},
+    storage::{PlayerDatabase, PlayerWeeklyStats},
     Result, Season, Week,
 };
 
@@ -211,6 +211,7 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
         let positions_clone = params.base.positions.clone();
         let players_val = get_player_data(PlayerDataRequest {
             debug: params.debug,
+            refresh: params.base.refresh,
             league_id,
             player_names: params.base.player_names.clone(),
             positions: params.base.positions.clone(),
@@ -234,30 +235,11 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
             filter_and_convert_players(players, params.base.player_names.clone(), positions_clone);
 
         // First, store all players regardless of whether they have stats
-        for filtered_player in &filtered_players {
-            let player = &filtered_player.original_player;
-            let player_id = filtered_player.player_id;
-
-            let position = if player.default_position_id < 0 {
-                "UNKNOWN".to_string()
-            } else {
-                Position::try_from(player.default_position_id as u8)
-                    .map(|p| p.to_string())
-                    .unwrap_or_else(|_| "UNKNOWN".to_string())
-            };
-
-            // Store player info in database (this handles position updates too)
-            let db_player = Player {
-                player_id,
-                name: player
-                    .full_name
-                    .clone()
-                    .unwrap_or_else(|| format!("Player {}", player.id)),
-                position: position.clone(),
-                team: None, // ESPN API doesn't provide team in this format
-            };
-            let _ = db.upsert_player(&db_player);
-        }
+        let espn_players: Vec<crate::espn::types::Player> = filtered_players
+            .iter()
+            .map(|fp| fp.original_player.clone())
+            .collect();
+        let _ = db.update_players_from_espn(&espn_players);
 
         // Phase 2: Process stats for players who have them
         let processed_data: Vec<(PlayerWeeklyStats, PlayerPoints)> = filtered_players
@@ -362,7 +344,7 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
                 weekly_db_stats.fantasy_team_id = updated_player.team_id;
                 weekly_db_stats.fantasy_team_name = updated_player.team_name.clone();
             }
-            let _ = db.merge_weekly_stats(&weekly_db_stats);
+            let _ = db.upsert_weekly_stats(&weekly_db_stats, true);
         }
     }
 
@@ -415,7 +397,7 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
 
             println!(
                 "{} {} ({}) [week {}] {} {} {:.2}",
-                player.id.as_u64(),
+                player.id.as_i64(),
                 player.name,
                 player.position,
                 player.week.as_u16(),
