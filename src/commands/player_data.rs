@@ -344,7 +344,7 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
                 weekly_db_stats.fantasy_team_id = updated_player.team_id;
                 weekly_db_stats.fantasy_team_name = updated_player.team_name.clone();
             }
-            let _ = db.upsert_weekly_stats(&weekly_db_stats, true);
+            let _ = db.merge_weekly_stats(&weekly_db_stats);
         }
     }
 
