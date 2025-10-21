@@ -55,7 +55,7 @@ pub async fn handle_projection_analysis(params: ProjectionAnalysisParams) -> Res
     if !params.base.as_json {
         println!("Connecting to database...");
     }
-    let mut db = PlayerDatabase::new()?;
+    let db = PlayerDatabase::new()?;
 
     // Fetch week-specific roster data to match the week being analyzed
     let roster_data = match crate::espn::http::get_league_roster_data(
@@ -120,12 +120,8 @@ pub async fn handle_projection_analysis(params: ProjectionAnalysisParams) -> Res
 
     let players: Vec<crate::espn::types::Player> = serde_json::from_value(players_val)?;
 
-    // Update players table with fresh data from ESPN API
-    // This ensures player names and positions are available for analysis
-    if !params.base.as_json {
-        println!("Updating player information in database...");
-    }
-    let _ = db.update_players_from_espn(&players);
+    // Note: No need to update players table since projection analysis works directly
+    // with ESPN API data and doesn't rely on the database players table
 
     // Load league settings to compute ESPN projections
     if !params.base.as_json {

@@ -349,10 +349,17 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
     }
 
     // Update database with roster information for ALL players (not just those with points)
-    if let Some(ref league_data) = roster_data {
-        match db.update_all_players_roster_info(league_data, params.base.season, params.base.week) {
-            Ok(count) => println!("✓ Updated roster info for {} players", count),
-            Err(e) => println!("⚠ Warning: Could not update roster info: {}", e),
+    // Only do this when not using cached data, since cached data already has current roster info
+    if !use_cached {
+        if let Some(ref league_data) = roster_data {
+            match db.update_all_players_roster_info(
+                league_data,
+                params.base.season,
+                params.base.week,
+            ) {
+                Ok(count) => println!("✓ Updated roster info for {} players", count),
+                Err(e) => println!("⚠ Warning: Could not update roster info: {}", e),
+            }
         }
     }
 
