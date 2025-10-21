@@ -32,6 +32,12 @@ pub enum Position {
     TE,
     DEF,
     K,
+    P,  // Punter
+    DT, // Defensive Tackle
+    DE, // Defensive End
+    LB, // Linebacker
+    DB, // Defensive Back/Cornerback
+    S,  // Safety
     FLEX,
     BE,
     IR,
@@ -50,9 +56,15 @@ impl Position {
             Position::TE => vec![4, 6], // TE can be position 4 or 6 in ESPN
             Position::DEF => vec![16],
             Position::K => vec![5, 17], // K can be position 5 or 17
+            Position::P => vec![7],
+            Position::DT => vec![9],
+            Position::DE => vec![10],
+            Position::LB => vec![11],
+            Position::DB => vec![12],
+            Position::S => vec![13],
             Position::FLEX => vec![2, 3, 4, 6], // RB, WR, TE
-            Position::BE => vec![0, 1, 2, 3, 4, 5, 6, 16, 17], // All positions
-            Position::IR => vec![0, 1, 2, 3, 4, 5, 6, 16, 17], // All positions
+            Position::BE => vec![0, 1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 16, 17], // All positions
+            Position::IR => vec![0, 1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 16, 17], // All positions
         }
     }
 
@@ -66,7 +78,17 @@ impl Position {
             3 => Ok(Position::WR),
             4 | 6 => Ok(Position::TE),
             5 | 17 => Ok(Position::K),
+            7 => Ok(Position::P),
+            9 => Ok(Position::DT),
+            10 => Ok(Position::DE),
+            11 => Ok(Position::LB),
+            12 => Ok(Position::DB),
+            13 => Ok(Position::S),
             16 => Ok(Position::DEF),
+            // Reject coaches and other non-player positions
+            14 => Err(EspnError::InvalidPosition {
+                position: format!("COACH (id: {})", id),
+            }),
             _ => Err(EspnError::InvalidPosition {
                 position: (id as u32).to_string(),
             }),
@@ -84,6 +106,12 @@ impl Position {
             Position::TE => 4,
             Position::DEF => 16,
             Position::K => 5,
+            Position::P => 7,
+            Position::DT => 9,
+            Position::DE => 10,
+            Position::LB => 11,
+            Position::DB => 12,
+            Position::S => 13,
             Position::FLEX => 23, // ESPN's FLEX position ID
             Position::BE => 20,   // ESPN's Bench position ID
             Position::IR => 21,   // ESPN's IR position ID
@@ -100,6 +128,12 @@ impl fmt::Display for Position {
             Position::TE => "TE",
             Position::DEF => "D/ST",
             Position::K => "K",
+            Position::P => "P",
+            Position::DT => "DT",
+            Position::DE => "DE",
+            Position::LB => "LB",
+            Position::DB => "DB",
+            Position::S => "S",
             Position::FLEX => "FLEX",
             Position::BE => "BE",
             Position::IR => "IR",
@@ -119,6 +153,12 @@ impl FromStr for Position {
             "TE" => Ok(Position::TE),
             "DEF" | "D/ST" | "DST" => Ok(Position::DEF),
             "K" => Ok(Position::K),
+            "P" => Ok(Position::P),
+            "DT" => Ok(Position::DT),
+            "DE" => Ok(Position::DE),
+            "LB" => Ok(Position::LB),
+            "DB" => Ok(Position::DB),
+            "S" => Ok(Position::S),
             "FLEX" => Ok(Position::FLEX),
             "BE" | "BENCH" => Ok(Position::BE),
             "IR" => Ok(Position::IR),

@@ -107,6 +107,7 @@ pub async fn handle_projection_analysis(params: ProjectionAnalysisParams) -> Res
     // Fetch ESPN projections for the target week (get_player_data handles caching internally)
     let players_val = get_player_data(PlayerDataRequest {
         debug: false,
+        refresh: params.base.refresh,
         league_id,
         player_names: params.base.player_names.clone(),
         positions: params.base.positions.clone(),
@@ -118,6 +119,9 @@ pub async fn handle_projection_analysis(params: ProjectionAnalysisParams) -> Res
     .await?;
 
     let players: Vec<crate::espn::types::Player> = serde_json::from_value(players_val)?;
+
+    // Note: No need to update players table since projection analysis works directly
+    // with ESPN API data and doesn't rely on the database players table
 
     // Load league settings to compute ESPN projections
     if !params.base.as_json {
@@ -223,11 +227,22 @@ pub async fn handle_projection_analysis(params: ProjectionAnalysisParams) -> Res
         }
     }
 
+    // Get league-allowed position IDs for automatic filtering
+    let allowed_position_ids = settings.get_allowed_position_ids();
+
     // Apply filters in parallel (position, injury status, roster status, team)
     let filtered_estimates: Vec<_> = estimates
         .into_par_iter()
         .filter(|estimate| {
-            // Apply position filter
+            // First, check if this player's position is allowed in the league
+            if let Ok(position_enum) = estimate.position.parse::<crate::Position>() {
+                let position_id = position_enum.to_u8();
+                if !allowed_position_ids.contains(&position_id) {
+                    return false; // Exclude non-fantasy positions
+                }
+            }
+
+            // Apply user-specified position filter
             if let Some(pos_filters) = &params.base.positions {
                 let position_matches = pos_filters.iter().any(|p| {
                     match p {

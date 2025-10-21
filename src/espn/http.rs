@@ -29,6 +29,7 @@ pub struct PlayerDataRequest {
     pub season: Season,
     pub week: Week,
     pub debug: bool,
+    pub refresh: bool,
     pub player_names: Option<Vec<String>>,
     pub positions: Option<Vec<Position>>,
     pub injury_status_filter: Option<InjuryStatusFilter>,
@@ -43,6 +44,7 @@ impl PlayerDataRequest {
             season,
             week,
             debug: false,
+            refresh: false,
             player_names: None,
             positions: None,
             injury_status_filter: None,
@@ -53,6 +55,12 @@ impl PlayerDataRequest {
     /// Enable debug output.
     pub fn with_debug(mut self) -> Self {
         self.debug = true;
+        self
+    }
+
+    /// Enable refresh mode to bypass cache.
+    pub fn with_refresh(mut self) -> Self {
+        self.refresh = true;
         self
     }
 
@@ -110,10 +118,10 @@ pub async fn get_league_settings(league_id: LeagueId, season: Season) -> Result<
     // Create cache key
     let cache_key = LeagueSettingsCacheKey { league_id, season };
 
-    // Check cache first
-    if let Some(cached_result) = GLOBAL_CACHE.league_settings.get(&cache_key) {
-        return Ok(cached_result);
-    }
+    // Check cache first (temporarily disabled for debug)
+    // if let Some(cached_result) = GLOBAL_CACHE.league_settings.get(&cache_key) {
+    //     return Ok(cached_result);
+    // }
 
     let url = format!(
         "{FFL_BASE_URL}/seasons/{}/segments/0/leagues/{}",
@@ -134,6 +142,13 @@ pub async fn get_league_settings(league_id: LeagueId, season: Season) -> Result<
         .json::<Value>()
         .await?;
 
+    // Debug: Always output league settings for investigation
+    eprintln!("RAW LEAGUE SETTINGS API RESPONSE:");
+    eprintln!(
+        "{}",
+        serde_json::to_string_pretty(&res).unwrap_or_else(|_| "Failed to serialize".to_string())
+    );
+
     // Cache the result
     GLOBAL_CACHE.league_settings.put(cache_key, res.clone());
 
@@ -152,8 +167,8 @@ pub async fn get_player_data(request: PlayerDataRequest) -> Result<Value> {
         projected: false, // This function gets actual data
     };
 
-    // Check cache first (but skip if debug mode to see the actual request)
-    if !request.debug {
+    // Check cache first (but skip if debug mode or refresh flag is set)
+    if !request.debug && !request.refresh {
         if let Some(cached_result) = GLOBAL_CACHE.http_player_data.get(&cache_key) {
             return Ok(cached_result);
         }
@@ -279,6 +294,15 @@ pub async fn get_league_rosters_with_cache_status(
         .error_for_status()?
         .json::<Value>()
         .await?;
+
+    if debug {
+        eprintln!("RAW ROSTER API RESPONSE:");
+        eprintln!(
+            "{}",
+            serde_json::to_string_pretty(&res)
+                .unwrap_or_else(|_| "Failed to serialize".to_string())
+        );
+    }
 
     // Cache the result (but not in debug mode)
     if !debug {

@@ -98,6 +98,10 @@ mod types_tests {
                         "pointsOverrides": {}
                     }
                 ]
+            },
+            "rosterSettings": {
+                "lineupSlotCounts": {},
+                "positionLimits": {}
             }
         });
 
@@ -119,6 +123,10 @@ mod types_tests {
                             "pointsOverrides": {}
                         }
                     ]
+                },
+                "rosterSettings": {
+                    "lineupSlotCounts": {},
+                    "positionLimits": {}
                 }
             }
         });
@@ -412,6 +420,10 @@ mod types_tests {
                         points_overrides: BTreeMap::new(),
                     },
                 ],
+            },
+            roster_settings: RosterSettings {
+                lineup_slot_counts: std::collections::HashMap::new(),
+                position_limits: std::collections::HashMap::new(),
             },
         };
 
