@@ -38,10 +38,6 @@ pub async fn load_or_fetch_league_settings(
         let _ = write_string(&path, &json_str); // tarpaulin::skip - file I/O operation
     }
 
-    // Debug: Show league's allowed position IDs
-    let allowed_ids = parsed.settings.get_allowed_position_ids();
-    eprintln!("League allowed position IDs: {:?}", allowed_ids);
-
     Ok(parsed.settings)
 }
 

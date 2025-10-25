@@ -142,13 +142,6 @@ pub async fn get_league_settings(league_id: LeagueId, season: Season) -> Result<
         .json::<Value>()
         .await?;
 
-    // Debug: Always output league settings for investigation
-    eprintln!("RAW LEAGUE SETTINGS API RESPONSE:");
-    eprintln!(
-        "{}",
-        serde_json::to_string_pretty(&res).unwrap_or_else(|_| "Failed to serialize".to_string())
-    );
-
     // Cache the result
     GLOBAL_CACHE.league_settings.put(cache_key, res.clone());
 
