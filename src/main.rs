@@ -5,6 +5,7 @@ use espn_ffl::{
     cli::{Commands, ESPN},
     commands::{
         common::CommandParamsBuilder,
+        draft_board::{handle_draft_board, handle_draft_board_watch, DraftBoardParams},
         league_data::handle_league_data,
         player_data::{handle_player_data, PlayerDataParams},
         projection_analysis::{handle_projection_analysis, ProjectionAnalysisParams},
@@ -31,7 +32,6 @@ async fn main() -> Result<()> {
             debug,
             json,
             projected,
-            refresh_positions,
             clear_db,
             refresh,
         } => {
@@ -47,7 +47,6 @@ async fn main() -> Result<()> {
                 .with_refresh_if(refresh)
                 .with_debug(debug);
 
-            params.refresh_positions = refresh_positions;
             params.clear_db = clear_db;
 
             handle_player_data(params).await?
@@ -74,6 +73,40 @@ async fn main() -> Result<()> {
                 .with_refresh_if(refresh);
 
             handle_projection_analysis(params).await?
+        }
+
+        Commands::DraftBoard {
+            league_id,
+            season,
+            positions,
+            top,
+            pool_size,
+            rank_type,
+            live,
+            refresh,
+            watch,
+            team,
+            team_id,
+            json,
+            debug,
+        } => {
+            let mut params = DraftBoardParams::new(season);
+            params.league_id = league_id;
+            params.positions = positions;
+            params.top = Some(top);
+            params.pool_size = pool_size;
+            params.rank_type = rank_type;
+            params.live = live;
+            params.refresh = refresh;
+            params.team = team;
+            params.team_id = team_id;
+            params.as_json = json;
+            params.debug = debug;
+
+            match watch {
+                Some(interval) => handle_draft_board_watch(params, interval).await?,
+                None => handle_draft_board(params).await?,
+            }
         }
 
         Commands::UpdateAllData {

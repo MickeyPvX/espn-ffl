@@ -50,7 +50,11 @@ pub async fn handle_update_all_data(
             println!("Processing Week {}...", week_num);
         }
 
-        // Fetch actual data first
+        // Actual and projected points come out of the *same* ESPN response — the request
+        // carries no projected flag, only the client-side choice of which stat block to
+        // read. So the first pass refreshes from the network and the second deliberately
+        // does not, letting it hit the response the first pass just cached. Refreshing
+        // twice would double both the request count and the ~10 MB per-week download.
         if verbose {
             println!("Fetching actual player data...");
         }
@@ -59,13 +63,13 @@ pub async fn handle_update_all_data(
             .with_refresh();
         handle_player_data(actual_params).await?;
 
-        // Fetch projected data
         if verbose {
-            println!("Fetching projected player data...");
+            println!("Reading projected data from the same response...");
         }
         let projected_params = PlayerDataParams::new(season, week, true)
             .with_league_id(league_id)
-            .with_refresh();
+            .with_refresh()
+            .reusing_http_response();
         handle_player_data(projected_params).await?;
 
         total_weeks_processed += 1;

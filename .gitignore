@@ -1,1 +1,17 @@
 /target
+
+# Coverage reports embed the full source tree; README generates them here.
+/coverage
+
+# Local credentials — ESPN_SWID / ESPN_S2 / ESPN_FFL_LEAGUE_ID live in the environment.
+.env
+.env.*
+
+# Exported data. The README's examples redirect league output into the working
+# directory, and those files contain real league, team and player data.
+*.db
+week*_stats.json
+projections.json
+draft_board.json
+my_roster.json
+team_projections.json

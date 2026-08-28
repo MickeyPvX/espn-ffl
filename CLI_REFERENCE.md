@@ -4,19 +4,70 @@ Complete command reference for ESPN Fantasy Football CLI.
 
 ## Commands
 
+### `espn-ffl draft-board`
+
+Rank the draft pool by value over replacement in your league's scoring.
+
+Recomputes each player's season projection with your league's scoring settings, measures it
+against the replacement level implied by your starting lineup, and compares that ranking to
+ESPN's average draft position.
+
+**Core Options:**
+- `-l, --league-id <ID>` - League ID (or set `ESPN_FFL_LEAGUE_ID` env var)
+- `-s, --season <YEAR>` - Season year (defaults to the NFL season in progress)
+- `-p, --position <POS>` - Show only these positions (repeatable). Narrows the printed rows
+  only; replacement levels and value ranks are always computed across the whole pool
+- `--top <N>` - Number of players to display (default: 40)
+- `--pool-size <N>` - How many players to pull from ESPN before ranking (default: 700)
+- `--rank-type <TYPE>` - ESPN ranking used to select the pool: `PPR`, `STANDARD`, `SUPERFLEX` (default: PPR)
+
+**Data Options:**
+- `--refresh` - Refetch projections and ADP instead of using the cached pool (cached for 6 hours)
+
+**Live Draft Options:**
+- `--live` - Read live draft state: hide drafted players, show your remaining needs
+- `--watch <SECONDS>` - Re-read the draft on an interval until it completes (implies `--live`)
+- `--team <NAME>` - Your fantasy team (partial match). Defaults to the team owned by `ESPN_SWID`
+- `--team-id <ID>` - Your fantasy team ID
+
+**Output Options:**
+- `--json` - Output as JSON
+- `--debug` - Print the request URL and fantasy filter
+
+**Columns:**
+- `Proj` - season projection under your league's scoring
+- `VOR` - points above the replacement-level player at that position
+- `ADP` - ESPN's average draft position
+- `Δ` - ADP minus value rank; positive means the player usually falls past his value
+- `Bye` - inferred from the gap in ESPN's weekly projections
+
+**Output Format:**
+```text
+My League · 2026 · 12 teams
+Starting lineup: QB RB2 WR2 TE D/ST K FLEX
+Starters drafted leaguewide: D/ST 12 · K 12 · QB 12 · RB 28 · TE 12 · WR 32
+
+   #  Name                     Pos       Proj      VOR     ADP       Δ  Bye
+----------------------------------------------------------------------------
+   1  Jahmyr Gibbs             RB       364.9    178.8     1.4      +0    6
+  20  Josh Allen               QB       369.7     82.8    22.0      +2    7
+
+Replacement level: D/ST 93 · K 143 · QB 287 · RB 186 · TE 167 · WR 187
+```
+
 ### `espn-ffl player-data`
 
 Get player statistics and fantasy points for a specific week.
 
 **Core Options:**
 - `-l, --league-id <ID>` - League ID (or set `ESPN_FFL_LEAGUE_ID` env var)
-- `-s, --season <YEAR>` - Season year (default: 2025)
+- `-s, --season <YEAR>` - Season year (defaults to the NFL season in progress)
 - `-w, --week <WEEK>` - Week number (default: 1)
 
 **Filtering Options:**
 - `-n, --player-name <NAME>` - Filter by player name (repeatable)
 - `-p, --position <POS>` - Filter by position: QB, RB, WR, TE, K, DEF, FLEX (repeatable)
-- `--team <NAME>` - Filter by team name (e.g., "kenny" for partial match)
+- `--team <NAME>` - Filter by team name (e.g., "alpha" for partial match)
 - `--team-id <ID>` - Filter by exact team ID number
 - `--injury-status <STATUS>` - Filter by injury status:
   - `active` - Healthy players (server-side filtered)
@@ -39,7 +90,6 @@ Get player statistics and fantasy points for a specific week.
 **Data Management:**
 - `--refresh` - Force fresh data from ESPN API
 - `--clear-db` - Clear local database before fetching
-- `--refresh-positions` - Update player position mappings
 
 ### `espn-ffl projection-analysis`
 
@@ -47,7 +97,7 @@ Analyze ESPN projection accuracy with advanced bias correction algorithms.
 
 **Core Options:**
 - `-l, --league-id <ID>` - League ID (or set `ESPN_FFL_LEAGUE_ID` env var)
-- `-s, --season <YEAR>` - Season year (default: 2025)
+- `-s, --season <YEAR>` - Season year (defaults to the NFL season in progress)
 - `-w, --week <WEEK>` - Week number (default: 1)
 
 **Filtering Options:**
@@ -87,6 +137,25 @@ Cache league settings for faster subsequent queries.
 
 ## Examples
 
+### Draft
+
+```bash
+# Full board for your league
+espn-ffl draft-board
+
+# Just the tight ends, ranked by value against the rest of the pool
+espn-ffl draft-board -p TE --top 15
+
+# Follow the draft live, refreshing every 30 seconds
+espn-ffl draft-board --watch 30
+
+# Board for a specific team's perspective
+espn-ffl draft-board --live --team "alpha"
+
+# Export the board for a spreadsheet
+espn-ffl draft-board --top 300 --json > draft_board.json
+```
+
 ### Basic Usage
 
 ```bash
@@ -110,7 +179,7 @@ espn-ffl player-data --week 1 --proj
 
 ```bash
 # Team filtering
-espn-ffl player-data --team kenny --week 1                    # Players on "kenny" team
+espn-ffl player-data --team alpha --week 1                    # Players on "alpha" team
 espn-ffl player-data --team-id 123 --week 1                   # Players on team ID 123
 
 # Combined filtering
@@ -130,7 +199,7 @@ espn-ffl projection-analysis --week 5
 espn-ffl projection-analysis -p QB --week 5
 
 # Team-specific analysis
-espn-ffl projection-analysis --team kenny --week 5
+espn-ffl projection-analysis --team alpha --week 5
 
 # Custom bias strength
 espn-ffl projection-analysis --week 2 --bias-strength 1.5
@@ -149,7 +218,7 @@ espn-ffl player-data --week 1 --json > week1_stats.json
 espn-ffl player-data --roster-status rostered --week 1 --json > my_roster.json
 
 # Export team-specific projections
-espn-ffl projection-analysis --team kenny --week 2 --json > team_projections.json
+espn-ffl projection-analysis --team alpha --week 2 --json > team_projections.json
 ```
 
 ## Environment Variables

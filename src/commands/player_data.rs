@@ -18,7 +18,6 @@
 //! struct containing all configuration options.
 
 use crate::{
-    cli::types::position::Position,
     espn::{
         cache_settings::load_or_fetch_league_settings,
         compute::{build_scoring_index, compute_points_for_week, select_weekly_stats},
@@ -30,7 +29,10 @@ use crate::{
 };
 
 use super::{
-    common::{CommandParams, CommandParamsBuilder},
+    common::{
+        fetch_roster_data_with_message, position_id_to_string, scoring_slot_id, CommandParams,
+        CommandParamsBuilder,
+    },
     league_data::resolve_league_id,
     player_filters::{apply_status_filters, filter_and_convert_players},
 };
@@ -44,7 +46,14 @@ pub struct PlayerDataParams {
     pub projected: bool,
     pub debug: bool,
     pub clear_db: bool,
-    pub refresh_positions: bool,
+    /// Allow the HTTP layer to serve this run from its cache even when `refresh` is set.
+    ///
+    /// `refresh` normally means two things at once: recompute from ESPN rather than the
+    /// local database, *and* bypass the HTTP cache. Actual and projected points come from
+    /// one identical ESPN response, so a caller fetching both needs the first meaning
+    /// without the second on its second pass — otherwise it downloads the same ~10 MB
+    /// payload twice.
+    pub reuse_http_response: bool,
 }
 
 impl PlayerDataParams {
@@ -55,8 +64,15 @@ impl PlayerDataParams {
             projected,
             debug: false,
             clear_db: false,
-            refresh_positions: false,
+            reuse_http_response: false,
         }
+    }
+
+    /// Serve this run from the HTTP cache if possible, without also re-enabling the
+    /// database cache that `refresh` disables.
+    pub fn reusing_http_response(mut self) -> Self {
+        self.reuse_http_response = true;
+        self
     }
 
     /// Set debug output.
@@ -86,47 +102,15 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
     let mut db = PlayerDatabase::new()?;
 
     // Fetch week-specific roster data to match the player data we're querying
-    let roster_data = match crate::espn::http::get_league_roster_data(
-        false,
+    let network_refresh = params.base.refresh && !params.reuse_http_response;
+    let roster_data = fetch_roster_data_with_message(
         league_id,
         params.base.season,
         Some(params.base.week),
-        params.base.refresh,
+        network_refresh,
+        true,
     )
-    .await
-    {
-        Ok((data, cache_status)) => {
-            match cache_status {
-                crate::espn::http::CacheStatus::Hit => {
-                    println!(
-                        "✓ Week {} roster status loaded (from cache)",
-                        params.base.week.as_u16()
-                    );
-                }
-                crate::espn::http::CacheStatus::Miss => {
-                    println!(
-                        "✓ Week {} roster status fetched (cache miss)",
-                        params.base.week.as_u16()
-                    );
-                }
-                crate::espn::http::CacheStatus::Refreshed => {
-                    println!(
-                        "✓ Week {} roster status fetched (refreshed)",
-                        params.base.week.as_u16()
-                    );
-                }
-            }
-            Some(data)
-        }
-        Err(e) => {
-            println!(
-                "⚠ Could not fetch week {} roster data: {}",
-                params.base.week.as_u16(),
-                e
-            );
-            None
-        }
-    };
+    .await?;
 
     // If clear_db flag is set, clear all database data first
     if params.clear_db {
@@ -201,17 +185,25 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
 
         player_points.extend(cached_player_points);
     } else {
-        println!(
-            "Fetching fresh player data from ESPN for Season {} Week {}...",
-            params.base.season.as_u16(),
-            params.base.week.as_u16()
-        );
+        if params.reuse_http_response {
+            println!(
+                "Reading Season {} Week {} from the already-fetched ESPN response...",
+                params.base.season.as_u16(),
+                params.base.week.as_u16()
+            );
+        } else {
+            println!(
+                "Fetching fresh player data from ESPN for Season {} Week {}...",
+                params.base.season.as_u16(),
+                params.base.week.as_u16()
+            );
+        }
 
         // tarpaulin::skip - HTTP call, tested via integration tests
         let positions_clone = params.base.positions.clone();
         let players_val = get_player_data(PlayerDataRequest {
             debug: params.debug,
-            refresh: params.base.refresh,
+            refresh: network_refresh,
             league_id,
             player_names: params.base.player_names.clone(),
             positions: params.base.positions.clone(),
@@ -219,6 +211,7 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
             week: params.base.week,
             injury_status_filter: params.base.injury_status.clone(),
             roster_status_filter: params.base.roster_status.clone(),
+            fallback_slot_ids: Some(settings.rosterable_slot_ids()),
         })
         .await?;
 
@@ -248,13 +241,7 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
                 let player = filtered_player.original_player;
                 let player_id = filtered_player.player_id;
 
-                let position = if player.default_position_id < 0 {
-                    "UNKNOWN".to_string()
-                } else {
-                    Position::try_from(player.default_position_id as u8)
-                        .map(|p| p.to_string())
-                        .unwrap_or_else(|_| "UNKNOWN".to_string())
-                };
+                let position = position_id_to_string(player.default_position_id as i32);
 
                 // Compute weekly stats and fantasy points only if player has stats
                 if let Ok(player_value) = serde_json::to_value(&player) {
@@ -264,13 +251,8 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
                         params.base.week.as_u16(),
                         stat_source,
                     ) {
-                        let position_id = if player.default_position_id < 0 {
-                            0u8 // Default to QB position for scoring purposes
-                        } else {
-                            player.default_position_id as u8
-                        };
-                        let points =
-                            compute_points_for_week(weekly_stats, position_id, &scoring_index);
+                        let slot_id = scoring_slot_id(player.default_position_id as i32);
+                        let points = compute_points_for_week(weekly_stats, slot_id, &scoring_index);
 
                         let weekly_db_stats = PlayerWeeklyStats {
                             player_id,
@@ -334,17 +316,28 @@ pub async fn handle_player_data(params: PlayerDataParams) -> Result<()> {
 
     // Now save to database with correct roster information
     if !use_cached {
-        for (mut weekly_db_stats, _player_point) in stats_to_save {
-            // Find the corresponding updated player_points to get roster info
-            if let Some(updated_player) = player_points
-                .iter()
-                .find(|p| p.id == weekly_db_stats.player_id)
-            {
-                weekly_db_stats.is_rostered = updated_player.is_rostered;
-                weekly_db_stats.fantasy_team_id = updated_player.team_id;
-                weekly_db_stats.fantasy_team_name = updated_player.team_name.clone();
-            }
-            let _ = db.merge_weekly_stats(&weekly_db_stats);
+        // Index the roster-updated points by id so the join below is not a linear scan per row.
+        let roster_by_id: std::collections::HashMap<_, _> = player_points
+            .iter()
+            .map(|p| (p.id, (p.is_rostered, p.team_id, p.team_name.clone())))
+            .collect();
+
+        let rows: Vec<PlayerWeeklyStats> = stats_to_save
+            .into_iter()
+            .map(|(mut weekly_db_stats, _player_point)| {
+                if let Some((is_rostered, team_id, team_name)) =
+                    roster_by_id.get(&weekly_db_stats.player_id)
+                {
+                    weekly_db_stats.is_rostered = *is_rostered;
+                    weekly_db_stats.fantasy_team_id = *team_id;
+                    weekly_db_stats.fantasy_team_name = team_name.clone();
+                }
+                weekly_db_stats
+            })
+            .collect();
+
+        if let Err(e) = db.merge_weekly_stats_batch(&rows) {
+            println!("⚠ Warning: Could not save weekly stats: {}", e);
         }
     }
 

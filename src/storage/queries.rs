@@ -2,10 +2,33 @@
 
 use super::{models::*, schema::PlayerDatabase};
 use crate::commands::common::CommandParams;
+use crate::error::Result;
 use crate::{PlayerId, Position, Season, Week};
-use anyhow::Result;
 use rusqlite::{params, Row};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+/// Bind parameters for `PlayerDatabase::MERGE_WEEKLY_STATS_SQL`.
+///
+/// A macro rather than a function because `params!` borrows the temporaries it wraps, so the
+/// resulting array cannot outlive a function call.
+macro_rules! merge_stats_params {
+    ($stats:expr, $now:expr) => {
+        params![
+            $stats.player_id.as_i64(),
+            $stats.season.as_u16(),
+            $stats.week.as_u16(),
+            $stats.projected_points,
+            $stats.actual_points,
+            $stats.active,
+            $stats.injured,
+            $stats.injury_status.as_ref().map(|s| s.as_str()),
+            $stats.is_rostered,
+            $stats.fantasy_team_id,
+            $stats.fantasy_team_name,
+            $now,
+        ]
+    };
+}
 
 /// Type alias for the complex return type of cached player data queries
 pub type CachedPlayerDataRow = (
@@ -39,29 +62,40 @@ impl PlayerDatabase {
 
     /// Update players table with ESPN player data
     /// Converts ESPN player format to database format and upserts
+    ///
+    /// Runs as one transaction; a league-wide refresh touches thousands of rows.
     pub fn update_players_from_espn(
         &mut self,
         espn_players: &[crate::espn::types::Player],
     ) -> Result<()> {
-        for player in espn_players {
-            let player_id = crate::PlayerId::new(player.id);
+        let tx = self.conn.transaction()?;
+        {
+            let mut stmt = tx.prepare_cached(
+                "INSERT OR REPLACE INTO players (player_id, name, position, team)
+                 VALUES (?, ?, ?, ?)",
+            )?;
 
-            let db_player = Player {
-                player_id,
-                name: player
-                    .full_name
-                    .clone()
-                    .unwrap_or_else(|| format!("Player {}", player.id)),
-                position: (player.default_position_id >= 0)
-                    .then(|| Position::try_from(player.default_position_id as u8).ok())
+            for player in espn_players {
+                let position = (player.default_position_id >= 0)
+                    .then(|| {
+                        Position::from_default_position_id(player.default_position_id as u8).ok()
+                    })
                     .flatten()
                     .map(|p| p.to_string())
-                    .unwrap_or_else(|| "UNKNOWN".to_string()),
-                team: None, // ESPN API doesn't provide team in this format
-            };
+                    .unwrap_or_else(|| "UNKNOWN".to_string());
 
-            self.upsert_player(&db_player)?;
+                stmt.execute(params![
+                    player.id,
+                    player
+                        .full_name
+                        .clone()
+                        .unwrap_or_else(|| format!("Player {}", player.id)),
+                    position,
+                    None::<String>, // ESPN API doesn't provide team in this format
+                ])?;
+            }
         }
+        tx.commit()?;
         Ok(())
     }
 
@@ -92,7 +126,7 @@ impl PlayerDatabase {
                     stats.actual_points,
                     stats.active,
                     stats.injured,
-                    stats.injury_status.as_ref().map(|s| s.to_string()),
+                    stats.injury_status.as_ref().map(|s| s.as_str()),
                     stats.is_rostered,
                     stats.fantasy_team_id,
                     stats.fantasy_team_name,
@@ -120,7 +154,7 @@ impl PlayerDatabase {
                     stats.actual_points,
                     stats.active,
                     stats.injured,
-                    stats.injury_status.as_ref().map(|s| s.to_string()),
+                    stats.injury_status.as_ref().map(|s| s.as_str()),
                     stats.is_rostered,
                     stats.fantasy_team_id,
                     stats.fantasy_team_name,
@@ -187,66 +221,57 @@ impl PlayerDatabase {
         Ok(stats)
     }
 
+    /// SQL for an upsert that preserves existing points/status when the incoming value is NULL
+    /// but always overwrites roster fields.
+    ///
+    /// `ON CONFLICT DO UPDATE` reads the existing row through the table name and the incoming
+    /// row through `excluded`, so the merge needs no correlated subqueries — the previous form
+    /// issued six of them per row.
+    const MERGE_WEEKLY_STATS_SQL: &'static str = "
+        INSERT INTO player_weekly_stats
+            (player_id, season, week, projected_points, actual_points,
+             active, injured, injury_status, is_rostered, fantasy_team_id, fantasy_team_name,
+             created_at, updated_at)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?12)
+        ON CONFLICT (player_id, season, week) DO UPDATE SET
+            projected_points  = COALESCE(excluded.projected_points, projected_points),
+            actual_points     = COALESCE(excluded.actual_points, actual_points),
+            active            = COALESCE(excluded.active, active),
+            injured           = COALESCE(excluded.injured, injured),
+            injury_status     = COALESCE(excluded.injury_status, injury_status),
+            is_rostered       = excluded.is_rostered,
+            fantasy_team_id   = excluded.fantasy_team_id,
+            fantasy_team_name = excluded.fantasy_team_name,
+            updated_at        = excluded.updated_at";
+
     /// Insert or merge weekly stats, preserving existing projected/actual points but updating roster info
     pub fn merge_weekly_stats(&mut self, stats: &PlayerWeeklyStats) -> Result<()> {
         let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
-
-        // Use INSERT OR REPLACE with COALESCE to merge data
-        // Always update roster info but preserve existing points if available
-        self.conn.execute(
-            "INSERT OR REPLACE INTO player_weekly_stats
-             (player_id, season, week, projected_points, actual_points,
-              active, injured, injury_status, is_rostered, fantasy_team_id, fantasy_team_name,
-              created_at, updated_at)
-             VALUES (?, ?, ?,
-                     COALESCE(?, (SELECT projected_points FROM player_weekly_stats
-                                  WHERE player_id = ? AND season = ? AND week = ?)),
-                     COALESCE(?, (SELECT actual_points FROM player_weekly_stats
-                                  WHERE player_id = ? AND season = ? AND week = ?)),
-                     COALESCE(?, (SELECT active FROM player_weekly_stats
-                                  WHERE player_id = ? AND season = ? AND week = ?)),
-                     COALESCE(?, (SELECT injured FROM player_weekly_stats
-                                  WHERE player_id = ? AND season = ? AND week = ?)),
-                     COALESCE(?, (SELECT injury_status FROM player_weekly_stats
-                                  WHERE player_id = ? AND season = ? AND week = ?)),
-                     ?, ?, ?,
-                     COALESCE((SELECT created_at FROM player_weekly_stats
-                              WHERE player_id = ? AND season = ? AND week = ?), ?), ?)",
-            params![
-                stats.player_id.as_i64(),
-                stats.season.as_u16(),
-                stats.week.as_u16(),
-                stats.projected_points,
-                stats.player_id.as_i64(),
-                stats.season.as_u16(),
-                stats.week.as_u16(),
-                stats.actual_points,
-                stats.player_id.as_i64(),
-                stats.season.as_u16(),
-                stats.week.as_u16(),
-                stats.active,
-                stats.player_id.as_i64(),
-                stats.season.as_u16(),
-                stats.week.as_u16(),
-                stats.injured,
-                stats.player_id.as_i64(),
-                stats.season.as_u16(),
-                stats.week.as_u16(),
-                stats.injury_status.as_ref().map(|s| s.to_string()),
-                stats.player_id.as_i64(),
-                stats.season.as_u16(),
-                stats.week.as_u16(),
-                stats.is_rostered,
-                stats.fantasy_team_id,
-                stats.fantasy_team_name,
-                stats.player_id.as_i64(),
-                stats.season.as_u16(),
-                stats.week.as_u16(),
-                now,
-                now
-            ],
-        )?;
+        let mut stmt = self.conn.prepare_cached(Self::MERGE_WEEKLY_STATS_SQL)?;
+        stmt.execute(merge_stats_params!(stats, now))?;
         Ok(())
+    }
+
+    /// Merge many rows inside a single transaction with one prepared statement.
+    ///
+    /// Bulk updates previously committed one implicit transaction per row, which dominated
+    /// the runtime of a full-league refresh.
+    pub fn merge_weekly_stats_batch<'a>(
+        &mut self,
+        stats: impl IntoIterator<Item = &'a PlayerWeeklyStats>,
+    ) -> Result<usize> {
+        let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+        let tx = self.conn.transaction()?;
+        let mut merged = 0;
+        {
+            let mut stmt = tx.prepare_cached(Self::MERGE_WEEKLY_STATS_SQL)?;
+            for row in stats {
+                stmt.execute(merge_stats_params!(row, now))?;
+                merged += 1;
+            }
+        }
+        tx.commit()?;
+        Ok(merged)
     }
 
     /// Get cached player data for a specific season/week combination with filters
@@ -315,18 +340,10 @@ impl PlayerDatabase {
             rusqlite::params_from_iter(sql_params.iter().map(|p| p.as_ref())),
             |row| {
                 let injury_status_str: Option<String> = row.get(6)?;
-                let injury_status = injury_status_str
-                    .map(|s| match s.as_str() {
-                        "Active" => Some(crate::espn::types::InjuryStatus::Active),
-                        "IR" => Some(crate::espn::types::InjuryStatus::InjuryReserve),
-                        "Out" => Some(crate::espn::types::InjuryStatus::Out),
-                        "Doubtful" => Some(crate::espn::types::InjuryStatus::Doubtful),
-                        "Questionable" => Some(crate::espn::types::InjuryStatus::Questionable),
-                        "Probable" => Some(crate::espn::types::InjuryStatus::Probable),
-                        "Day-to-Day" => Some(crate::espn::types::InjuryStatus::DayToDay),
-                        _ => Some(crate::espn::types::InjuryStatus::Unknown),
-                    })
-                    .unwrap_or(None);
+                let injury_status = injury_status_str.map(|s| {
+                    s.parse::<crate::espn::types::InjuryStatus>()
+                        .unwrap_or_default()
+                });
 
                 Ok((
                     PlayerId::new(row.get(0)?), // player_id
@@ -440,57 +457,73 @@ impl PlayerDatabase {
         Ok(players)
     }
 
-    /// Update roster information for ALL players based on current roster data
-    /// This ensures that roster assignments are current for all players in database
+    /// Update roster information for a week from current roster data.
+    ///
+    /// Returns the number of rostered players recorded.
+    ///
+    /// Written as one sweep plus one upsert per rostered player rather than a row per known
+    /// player. The old shape wrote a row for every player in the database — thousands of
+    /// them carrying nothing but `is_rostered = false` — even though a row with no points
+    /// can never be returned by [`Self::get_cached_player_data`], which requires a non-null
+    /// points column. Those rows were pure write amplification and table bloat.
     pub fn update_all_players_roster_info(
         &mut self,
         roster_data: &crate::espn::types::LeagueData,
         season: Season,
         week: Week,
     ) -> Result<usize> {
+        let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
         let player_to_team = roster_data.create_player_roster_map();
-        let mut updated_count = 0;
 
-        // Get all players from database
-        let all_players = self.get_all_players()?;
+        let tx = self.conn.transaction()?;
 
-        for player in all_players {
-            let player_id_i64 = player.player_id.as_i64();
+        // Clear last run's roster marks for this week in a single statement, so players
+        // dropped since then stop reporting a stale team.
+        tx.execute(
+            "UPDATE player_weekly_stats
+                SET is_rostered = 0,
+                    fantasy_team_id = NULL,
+                    fantasy_team_name = NULL,
+                    updated_at = ?
+              WHERE season = ? AND week = ?
+                AND (is_rostered IS NOT 0 OR fantasy_team_id IS NOT NULL)",
+            params![now, season.as_u16(), week.as_u16()],
+        )?;
 
-            // Check exact player ID match (no positive/negative conversion)
-            let roster_info = player_to_team.get(&player_id_i64);
+        // Then mark the players actually on a roster. A rostered player may have no stats
+        // row yet, so this has to be an upsert rather than an update.
+        let mut rostered = 0;
+        {
+            // The WHERE EXISTS guard skips players the players table has not seen yet,
+            // which would otherwise trip the foreign key. Display-time roster status comes
+            // from the live ESPN response, so nothing is lost by waiting for the next fetch.
+            let mut stmt = tx.prepare_cached(
+                "INSERT INTO player_weekly_stats
+                    (player_id, season, week, is_rostered, fantasy_team_id, fantasy_team_name,
+                     created_at, updated_at)
+                 SELECT ?1, ?2, ?3, 1, ?4, ?5, ?6, ?6
+                  WHERE EXISTS (SELECT 1 FROM players WHERE player_id = ?1)
+                 ON CONFLICT (player_id, season, week) DO UPDATE SET
+                    is_rostered       = 1,
+                    fantasy_team_id   = excluded.fantasy_team_id,
+                    fantasy_team_name = excluded.fantasy_team_name,
+                    updated_at        = excluded.updated_at",
+            )?;
 
-            let (is_rostered, team_id, team_name) =
-                if let Some((team_id, team_name, _team_abbrev)) = roster_info {
-                    (Some(true), Some(*team_id), team_name.clone())
-                } else {
-                    (Some(false), None, None)
-                };
-
-            // Update or create a minimal weekly stats entry to store roster info
-            // This ensures roster info is available even for players without performance stats
-            let minimal_stats = PlayerWeeklyStats {
-                player_id: player.player_id,
-                season,
-                week,
-                projected_points: None,
-                actual_points: None,
-                active: None,
-                injured: None,
-                injury_status: None,
-                is_rostered,
-                fantasy_team_id: team_id,
-                fantasy_team_name: team_name,
-                created_at: 0, // Will be set by database
-                updated_at: 0, // Will be set by database
-            };
-
-            // Use merge to preserve any existing stats while updating roster info
-            self.merge_weekly_stats(&minimal_stats)?;
-            updated_count += 1;
+            for (player_id, (team_id, team_name, _abbrev)) in &player_to_team {
+                rostered += stmt.execute(params![
+                    player_id,
+                    season.as_u16(),
+                    week.as_u16(),
+                    team_id,
+                    team_name,
+                    now,
+                ])?;
+            }
         }
 
-        Ok(updated_count)
+        tx.commit()?;
+        Ok(rostered)
     }
 
     /// Clear all data from the database (useful for starting fresh)
@@ -506,18 +539,8 @@ impl PlayerDatabase {
         use crate::espn::types::InjuryStatus;
 
         let injury_status_str: Option<String> = row.get(7)?;
-        let injury_status = injury_status_str
-            .map(|s| match s.as_str() {
-                "Active" => Some(InjuryStatus::Active),
-                "IR" => Some(InjuryStatus::InjuryReserve),
-                "Out" => Some(InjuryStatus::Out),
-                "Doubtful" => Some(InjuryStatus::Doubtful),
-                "Questionable" => Some(InjuryStatus::Questionable),
-                "Probable" => Some(InjuryStatus::Probable),
-                "Day-to-Day" => Some(InjuryStatus::DayToDay),
-                _ => Some(InjuryStatus::Unknown),
-            })
-            .unwrap_or(None);
+        let injury_status =
+            injury_status_str.map(|s| s.parse::<InjuryStatus>().unwrap_or_default());
 
         Ok(PlayerWeeklyStats {
             player_id: PlayerId::new(row.get(0)?),
