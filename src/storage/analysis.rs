@@ -1,8 +1,8 @@
 //! Analysis operations for projection accuracy and performance estimation
 
 use super::{models::*, schema::PlayerDatabase};
+use crate::error::Result;
 use crate::{PlayerId, Season, Week};
-use anyhow::Result;
 use rusqlite::params;
 
 impl PlayerDatabase {
@@ -69,15 +69,25 @@ impl PlayerDatabase {
     ) -> Result<Vec<PerformanceEstimate>> {
         let mut estimates = Vec::new();
 
+        // Both statements are reused for every player, so prepare them once rather than
+        // re-compiling the SQL on each iteration.
+        let mut player_stmt = self
+            .conn
+            .prepare("SELECT name, position, team FROM players WHERE player_id = ?")?;
+        let mut bias_stmt = self.conn.prepare(
+            "SELECT s.projected_points, s.actual_points, (s.projected_points - s.actual_points) as bias
+             FROM player_weekly_stats s
+             WHERE s.player_id = ?
+               AND s.season = ?
+               AND s.week < ?
+               AND s.projected_points IS NOT NULL
+               AND s.actual_points IS NOT NULL",
+        )?;
+
         for (player_id, espn_projection) in projected_points_data
             .iter()
             .take(limit.map(|l| l as usize).unwrap_or(usize::MAX))
         {
-            // Get player info first
-            let mut player_stmt = self
-                .conn
-                .prepare("SELECT name, position, team FROM players WHERE player_id = ?")?;
-
             let player_info = player_stmt.query_row(params![player_id.as_i64()], |row| {
                 Ok((
                     row.get::<_, String>(0)?,
@@ -97,16 +107,6 @@ impl PlayerDatabase {
 
             // Get individual bias values for this player
             // Include all weeks with both projected and actual data
-            let mut bias_stmt = self.conn.prepare(
-                "SELECT s.projected_points, s.actual_points, (s.projected_points - s.actual_points) as bias
-                 FROM player_weekly_stats s
-                 WHERE s.player_id = ?
-                   AND s.season = ?
-                   AND s.week < ?
-                   AND s.projected_points IS NOT NULL
-                   AND s.actual_points IS NOT NULL",
-            )?;
-
             let bias_rows = bias_stmt.query_map(
                 params![player_id.as_i64(), season.as_u16(), target_week.as_u16()],
                 |row| {
@@ -222,20 +222,19 @@ impl PlayerDatabase {
         }
 
         // Add fallback for players not found in database but in ESPN data
+        let already_estimated: std::collections::HashSet<PlayerId> =
+            estimates.iter().map(|e| e.player_id).collect();
+
         for (player_id, espn_projection) in projected_points_data
             .iter()
             .take(limit.map(|l| l as usize).unwrap_or(usize::MAX))
         {
             // Check if we already processed this player
-            if estimates.iter().any(|e| e.player_id == *player_id) {
+            if already_estimated.contains(player_id) {
                 continue;
             }
 
             // No historical data, but try to get player info from players table
-            let mut player_stmt = self
-                .conn
-                .prepare("SELECT name, position, team FROM players WHERE player_id = ?")?;
-
             let (name, position, team) = player_stmt
                 .query_row(params![player_id.as_i64()], |row| {
                     Ok((

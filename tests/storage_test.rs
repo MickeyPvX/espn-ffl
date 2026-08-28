@@ -458,3 +458,185 @@ fn test_get_cached_player_data_filters_by_projected() {
     assert_eq!(actual_data.len(), 1);
     assert_eq!(actual_data[0].3, 18.5); // Should return actual points
 }
+
+#[test]
+fn test_merge_weekly_stats_preserves_points_and_overwrites_roster() {
+    let mut db = PlayerDatabase::new_in_memory().unwrap();
+
+    db.upsert_player(&Player {
+        player_id: PlayerId::new(12345),
+        name: "Test Player".to_string(),
+        position: "QB".to_string(),
+        team: None,
+    })
+    .unwrap();
+
+    // Seed a week that already has both point columns filled in.
+    let mut seeded = PlayerWeeklyStats::test_minimal(
+        PlayerId::new(12345),
+        Season::new(2026),
+        Week::new(3),
+        Some(20.0),
+        Some(18.5),
+    );
+    seeded.is_rostered = Some(true);
+    seeded.fantasy_team_id = Some(7);
+    seeded.fantasy_team_name = Some("Old Team".to_string());
+    db.merge_weekly_stats(&seeded).unwrap();
+
+    // A roster-only update carries NULL points; those must not wipe what is stored.
+    let mut roster_only = PlayerWeeklyStats::test_minimal(
+        PlayerId::new(12345),
+        Season::new(2026),
+        Week::new(3),
+        None,
+        None,
+    );
+    roster_only.active = None;
+    roster_only.injured = None;
+    roster_only.is_rostered = Some(false);
+    roster_only.fantasy_team_id = None;
+    roster_only.fantasy_team_name = None;
+    db.merge_weekly_stats(&roster_only).unwrap();
+
+    let stored = db
+        .get_weekly_stats(PlayerId::new(12345), Season::new(2026), Week::new(3))
+        .unwrap()
+        .expect("row should exist");
+
+    // Points survive the NULL-bearing merge...
+    assert_eq!(stored.projected_points, Some(20.0));
+    assert_eq!(stored.actual_points, Some(18.5));
+    // ...while roster fields are overwritten, including back to NULL.
+    assert_eq!(stored.is_rostered, Some(false));
+    assert_eq!(stored.fantasy_team_id, None);
+    assert_eq!(stored.fantasy_team_name, None);
+}
+
+#[test]
+fn test_merge_weekly_stats_batch_writes_every_row() {
+    let mut db = PlayerDatabase::new_in_memory().unwrap();
+
+    for id in 1..=25 {
+        db.upsert_player(&Player {
+            player_id: PlayerId::new(id),
+            name: format!("Player {}", id),
+            position: "RB".to_string(),
+            team: None,
+        })
+        .unwrap();
+    }
+
+    let rows: Vec<PlayerWeeklyStats> = (1..=25)
+        .map(|id| {
+            PlayerWeeklyStats::test_minimal(
+                PlayerId::new(id),
+                Season::new(2026),
+                Week::new(1),
+                Some(id as f64),
+                None,
+            )
+        })
+        .collect();
+
+    assert_eq!(db.merge_weekly_stats_batch(&rows).unwrap(), 25);
+
+    let stored = db
+        .get_weekly_stats(PlayerId::new(25), Season::new(2026), Week::new(1))
+        .unwrap()
+        .expect("row should exist");
+    assert_eq!(stored.projected_points, Some(25.0));
+}
+
+#[test]
+fn test_schema_initialization_is_idempotent() {
+    // Re-running initialization against an already-migrated database must be a no-op
+    // rather than an error, which is what the user_version guard buys.
+    let mut db = PlayerDatabase::new_in_memory().unwrap();
+    db.upsert_player(&Player {
+        player_id: PlayerId::new(1),
+        name: "Keep Me".to_string(),
+        position: "WR".to_string(),
+        team: None,
+    })
+    .unwrap();
+
+    db.initialize_schema().unwrap();
+
+    assert_eq!(db.get_all_players().unwrap().len(), 1);
+}
+
+#[test]
+fn test_roster_update_only_touches_rostered_players_and_clears_stale() {
+    use espn_ffl::espn::types::{LeagueData, RosterEntry, Team, TeamRoster};
+
+    let mut db = PlayerDatabase::new_in_memory().unwrap();
+
+    for id in 1..=3 {
+        db.upsert_player(&Player {
+            player_id: PlayerId::new(id),
+            name: format!("Player {}", id),
+            position: "RB".to_string(),
+            team: None,
+        })
+        .unwrap();
+        // Every player has points for the week, so every one is returnable by queries.
+        db.merge_weekly_stats(&PlayerWeeklyStats::test_minimal(
+            PlayerId::new(id),
+            Season::new(2026),
+            Week::new(1),
+            Some(10.0),
+            None,
+        ))
+        .unwrap();
+    }
+
+    let roster_with = |player_ids: Vec<i64>| LeagueData {
+        teams: vec![Team {
+            id: 7,
+            name: Some("Team Alpha".to_string()),
+            abbrev: Some("ALPH".to_string()),
+            owners: None,
+            roster: Some(TeamRoster {
+                entries: player_ids
+                    .into_iter()
+                    .map(|player_id| RosterEntry {
+                        player_id,
+                        lineup_slot_id: 2,
+                        injury_status: None,
+                    })
+                    .collect(),
+            }),
+        }],
+    };
+
+    // Players 1 and 2 are rostered; the return value counts only those.
+    let marked = db
+        .update_all_players_roster_info(&roster_with(vec![1, 2]), Season::new(2026), Week::new(1))
+        .unwrap();
+    assert_eq!(marked, 2);
+
+    let stored = |db: &PlayerDatabase, id: i64| {
+        db.get_weekly_stats(PlayerId::new(id), Season::new(2026), Week::new(1))
+            .unwrap()
+            .expect("row should exist")
+    };
+
+    assert_eq!(stored(&db, 1).is_rostered, Some(true));
+    assert_eq!(stored(&db, 1).fantasy_team_id, Some(7));
+    assert_eq!(stored(&db, 2).is_rostered, Some(true));
+    assert_eq!(stored(&db, 3).is_rostered, Some(false));
+    // Points must survive a roster-only update.
+    assert_eq!(stored(&db, 1).projected_points, Some(10.0));
+
+    // Player 1 is dropped: the sweep must clear the stale team rather than leave it behind.
+    db.update_all_players_roster_info(&roster_with(vec![2]), Season::new(2026), Week::new(1))
+        .unwrap();
+
+    assert_eq!(stored(&db, 1).is_rostered, Some(false));
+    assert_eq!(stored(&db, 1).fantasy_team_id, None);
+    assert_eq!(stored(&db, 1).fantasy_team_name, None);
+    assert_eq!(stored(&db, 2).is_rostered, Some(true));
+    // ...and still without disturbing the points.
+    assert_eq!(stored(&db, 1).projected_points, Some(10.0));
+}

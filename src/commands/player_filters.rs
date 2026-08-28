@@ -50,19 +50,22 @@ pub fn filter_and_convert_players(
             // Apply position filtering on the client side to ensure accuracy
             if let Some(positions) = &position_filter {
                 let player_position = (player.default_position_id >= 0)
-                    .then(|| Position::try_from(player.default_position_id as u8).ok())
+                    .then(|| {
+                        Position::from_default_position_id(player.default_position_id as u8).ok()
+                    })
                     .flatten();
 
                 let Some(pos) = player_position else {
                     return None; // Player has no valid position, exclude it
                 };
 
-                let matches = positions.iter().any(|filter_pos| {
-                    if *filter_pos == Position::FLEX {
-                        filter_pos.get_all_position_ids().contains(&pos.to_u8())
-                    } else {
-                        *filter_pos == pos
-                    }
+                let matches = positions.iter().any(|filter_pos| match filter_pos {
+                    // Slot-shaped filters match any position eligible for that slot.
+                    Position::FLEX | Position::BE | Position::IR => filter_pos
+                        .lineup_slot_ids()
+                        .iter()
+                        .any(|slot| pos.fills_slot(*slot)),
+                    _ => *filter_pos == pos,
                 });
 
                 if !matches {
@@ -192,7 +195,7 @@ pub fn apply_roster_filter(players: &mut Vec<PlayerPoints>, filter: &RosterStatu
 /// # use espn_ffl::cli::types::filters::FantasyTeamFilter;
 /// # use espn_ffl::espn::types::PlayerPoints;
 /// let mut players = vec![/* PlayerPoints objects */];
-/// apply_fantasy_team_filter(&mut players, &FantasyTeamFilter::Name("kenny".to_string()));
+/// apply_fantasy_team_filter(&mut players, &FantasyTeamFilter::Name("alpha".to_string()));
 /// ```
 pub fn apply_fantasy_team_filter(players: &mut Vec<PlayerPoints>, filter: &FantasyTeamFilter) {
     players.retain(|player| matches_fantasy_team_filter(player, filter));
@@ -386,7 +389,7 @@ mod tests {
             injury_status: None,
             is_rostered: Some(true),
             team_id: Some(1),
-            team_name: Some("Kenny Rogers' Toasters".to_string()),
+            team_name: Some("Gridiron Alpha Squad".to_string()),
         };
 
         let player_on_team_2 = PlayerPoints {
@@ -437,7 +440,7 @@ mod tests {
 
     #[test]
     fn test_matches_fantasy_team_filter_by_name() {
-        let player_kenny_team = PlayerPoints {
+        let player_alpha_team = PlayerPoints {
             id: PlayerId::new(123),
             name: "Player 1".to_string(),
             position: "QB".to_string(),
@@ -449,7 +452,7 @@ mod tests {
             injury_status: None,
             is_rostered: Some(true),
             team_id: Some(1),
-            team_name: Some("Kenny Rogers' Toasters".to_string()),
+            team_name: Some("Gridiron Alpha Squad".to_string()),
         };
 
         let player_other_team = PlayerPoints {
@@ -468,46 +471,46 @@ mod tests {
         };
 
         // Test partial matching (case-insensitive)
-        let kenny_filter = FantasyTeamFilter::Name("kenny".to_string());
-        let toasters_filter = FantasyTeamFilter::Name("toasters".to_string());
-        let rogers_filter = FantasyTeamFilter::Name("Rogers".to_string());
+        let alpha_filter = FantasyTeamFilter::Name("alpha".to_string());
+        let squad_filter = FantasyTeamFilter::Name("squad".to_string());
+        let gridiron_filter = FantasyTeamFilter::Name("Gridiron".to_string());
         let different_filter = FantasyTeamFilter::Name("different".to_string());
         let nomatch_filter = FantasyTeamFilter::Name("nomatch".to_string());
 
-        // Should match Kenny's team
+        // Should match the alpha team
         assert!(matches_fantasy_team_filter(
-            &player_kenny_team,
-            &kenny_filter
+            &player_alpha_team,
+            &alpha_filter
         ));
         assert!(matches_fantasy_team_filter(
-            &player_kenny_team,
-            &toasters_filter
+            &player_alpha_team,
+            &squad_filter
         ));
         assert!(matches_fantasy_team_filter(
-            &player_kenny_team,
-            &rogers_filter
+            &player_alpha_team,
+            &gridiron_filter
         ));
         assert!(!matches_fantasy_team_filter(
-            &player_kenny_team,
+            &player_alpha_team,
             &different_filter
         ));
         assert!(!matches_fantasy_team_filter(
-            &player_kenny_team,
+            &player_alpha_team,
             &nomatch_filter
         ));
 
         // Should match other team
         assert!(!matches_fantasy_team_filter(
             &player_other_team,
-            &kenny_filter
+            &alpha_filter
         ));
         assert!(!matches_fantasy_team_filter(
             &player_other_team,
-            &toasters_filter
+            &squad_filter
         ));
         assert!(!matches_fantasy_team_filter(
             &player_other_team,
-            &rogers_filter
+            &gridiron_filter
         ));
         assert!(matches_fantasy_team_filter(
             &player_other_team,

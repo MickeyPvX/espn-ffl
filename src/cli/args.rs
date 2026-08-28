@@ -23,7 +23,7 @@ pub struct CommonFilters {
     #[clap(short = 'p', long = "position", value_parser = clap::value_parser!(Position))]
     pub positions: Option<Vec<Position>>,
 
-    /// Season year (e.g. 2025).
+    /// Season year (defaults to the season in progress).
     #[clap(long, short, default_value_t = Season::default())]
     pub season: Season,
 
@@ -78,7 +78,7 @@ pub enum Commands {
         #[clap(long)]
         refresh: bool,
 
-        /// Season year (e.g. 2025).
+        /// Season year (defaults to the season in progress).
         #[clap(long, short, default_value_t = Season::default())]
         season: Season,
 
@@ -106,10 +106,6 @@ pub enum Commands {
         /// Use projected points instead of actual (statSourceId == 1)
         #[clap(long = "proj")]
         projected: bool,
-
-        /// Force refresh player positions in database (useful after position mapping updates)
-        #[clap(long)]
-        refresh_positions: bool,
 
         /// Clear all data from the database before fetching (useful for starting fresh)
         #[clap(long)]
@@ -140,6 +136,65 @@ pub enum Commands {
         bias_strength: Option<f64>,
     },
 
+    /// Rank the draft pool by value over replacement in this league's scoring.
+    ///
+    /// Recomputes each player's season projection using your league's scoring settings,
+    /// measures it against the replacement level implied by your starting lineup, and
+    /// compares the result to ESPN's average draft position to surface value picks.
+    DraftBoard {
+        /// League ID (or set `ESPN_FFL_LEAGUE_ID` env var).
+        #[clap(long, short)]
+        league_id: Option<LeagueId>,
+
+        /// Season year (defaults to the season in progress).
+        #[clap(long, short, default_value_t = Season::default())]
+        season: Season,
+
+        /// Filter by position (repeatable): `-p RB -p WR`.
+        #[clap(short = 'p', long = "position", value_parser = clap::value_parser!(Position))]
+        positions: Option<Vec<Position>>,
+
+        /// Number of players to display.
+        #[clap(long, default_value_t = 40)]
+        top: usize,
+
+        /// How many players to pull from ESPN before ranking.
+        #[clap(long, default_value_t = 700)]
+        pool_size: u32,
+
+        /// ESPN ranking flavour used to select the pool: PPR, STANDARD, SUPERFLEX.
+        #[clap(long, default_value = "PPR")]
+        rank_type: String,
+
+        /// Read live draft state: hide drafted players and show your remaining needs.
+        #[clap(long)]
+        live: bool,
+
+        /// Refetch projections and ADP from ESPN instead of using the cached pool.
+        #[clap(long)]
+        refresh: bool,
+
+        /// Re-read the draft every N seconds until it completes (implies --live).
+        #[clap(long, value_name = "SECONDS")]
+        watch: Option<u64>,
+
+        /// Your fantasy team name (partial match). Defaults to the team owned by ESPN_SWID.
+        #[clap(long)]
+        team: Option<String>,
+
+        /// Your fantasy team ID.
+        #[clap(long)]
+        team_id: Option<u32>,
+
+        /// Output results as JSON instead of a table.
+        #[clap(long)]
+        json: bool,
+
+        /// Print request URL and filter for debugging.
+        #[clap(long)]
+        debug: bool,
+    },
+
     /// Update all player data (actual and projected) for multiple weeks.
     ///
     /// Efficiently populates the database with complete historical data needed
@@ -150,7 +205,7 @@ pub enum Commands {
         #[clap(long, short)]
         league_id: Option<LeagueId>,
 
-        /// Season year (e.g. 2025).
+        /// Season year (defaults to the season in progress).
         #[clap(long, short, default_value_t = Season::default())]
         season: Season,
 

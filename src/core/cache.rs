@@ -227,6 +227,27 @@ impl CacheKey for HttpPlayerDataCacheKey {
     }
 }
 
+/// Cache key for the preseason draft pool
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct DraftPoolCacheKey {
+    pub league_id: LeagueId,
+    pub season: Season,
+    pub limit: u32,
+    pub rank_type: String,
+}
+
+impl CacheKey for DraftPoolCacheKey {
+    fn to_file_key(&self) -> String {
+        format!(
+            "draft_pool_l{}_s{}_n{}_{}",
+            self.league_id.as_u32(),
+            self.season.as_u16(),
+            self.limit,
+            self.rank_type.to_lowercase()
+        )
+    }
+}
+
 /// Cache key for HTTP roster data
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RosterDataCacheKey {
@@ -278,9 +299,25 @@ where
 
     /// Get an item from cache (checks memory first, then disk)
     pub fn get(&self, key: &K) -> Option<V> {
+        self.get_fresher_than(key, None)
+    }
+
+    /// Get an item, treating a disk entry older than `max_age` as a miss.
+    ///
+    /// The memory tier is always considered fresh: it only lives for one CLI invocation, so
+    /// an entry there was fetched moments ago. Only the on-disk tier can go stale between
+    /// runs, which matters for data that moves day to day (draft ADP) but not for data that
+    /// is fixed for a season (league scoring settings).
+    pub fn get_fresher_than(&self, key: &K, max_age: Option<std::time::Duration>) -> Option<V> {
         // First check memory cache
         if let Some(value) = self.memory_cache.lock().unwrap().get(key) {
             return Some(value.clone());
+        }
+
+        if let Some(max_age) = max_age {
+            if !Self::disk_entry_is_fresh(key, max_age) {
+                return None;
+            }
         }
 
         // Fall back to disk cache
@@ -294,6 +331,20 @@ where
         }
 
         None
+    }
+
+    /// Whether the on-disk entry exists and was written within `max_age`.
+    fn disk_entry_is_fresh(key: &K, max_age: std::time::Duration) -> bool {
+        let Ok(metadata) = fs::metadata(key.to_file_path()) else {
+            return false;
+        };
+        let Ok(modified) = metadata.modified() else {
+            return false;
+        };
+        modified
+            .elapsed()
+            .map(|age| age <= max_age)
+            .unwrap_or(false)
     }
 
     /// Put an item into cache (stores in both memory and disk)
@@ -328,13 +379,6 @@ where
         self.memory_cache.lock().unwrap().clear();
     }
 
-    /// Clear both memory and disk cache
-    pub fn clear_all(&self) {
-        self.clear_memory();
-        // Note: We don't clear disk cache by default as it's more expensive
-        // Add a method to clear disk cache if needed
-    }
-
     /// Clear disk cache for a specific key (used when underlying data changes)
     pub fn invalidate_disk_cache(&self, key: &K) -> std::io::Result<()> {
         let path = key.to_file_path();
@@ -360,6 +404,7 @@ pub struct CacheManager {
     pub league_settings: UnifiedCache<LeagueSettingsCacheKey, Value>,
     pub http_player_data: UnifiedCache<HttpPlayerDataCacheKey, Value>,
     pub roster_data: UnifiedCache<RosterDataCacheKey, Value>,
+    pub draft_pool: UnifiedCache<DraftPoolCacheKey, Value>,
 }
 
 impl CacheManager {
@@ -371,6 +416,7 @@ impl CacheManager {
             league_settings: UnifiedCache::new(50), // Cache up to 50 league settings
             http_player_data: UnifiedCache::new(100), // Cache up to 100 HTTP player data responses
             roster_data: UnifiedCache::new(50),  // Cache up to 50 roster data responses
+            draft_pool: UnifiedCache::new(4),    // Draft pools are large; a few is plenty
         }
     }
 
@@ -381,6 +427,7 @@ impl CacheManager {
         self.league_settings.clear_memory();
         self.http_player_data.clear_memory();
         self.roster_data.clear_memory();
+        self.draft_pool.clear_memory();
     }
 
     /// Get memory usage statistics for all caches
@@ -397,6 +444,7 @@ impl CacheManager {
             self.http_player_data.memory_stats(),
         );
         stats.insert("roster_data".to_string(), self.roster_data.memory_stats());
+        stats.insert("draft_pool".to_string(), self.draft_pool.memory_stats());
         stats
     }
 }
@@ -528,6 +576,67 @@ mod tests {
         let stats = cache.memory_stats();
         assert_eq!(stats.0, 2); // Only 2 items in memory cache
         assert_eq!(stats.1, 2); // Capacity is 2
+    }
+
+    #[test]
+    fn test_get_fresher_than_rejects_stale_disk_entries() {
+        // Unique key so this never collides with real cached data.
+        let key = WeeklyStatsCacheKey {
+            player_id: PlayerId::new(999_881),
+            season: Season::new(2098),
+            week: Week::new(98),
+        };
+        let cache: UnifiedCache<WeeklyStatsCacheKey, Option<String>> = UnifiedCache::new(2);
+        let _ = cache.invalidate_disk_cache(&key);
+
+        cache.put(key.clone(), Some("value".to_string()));
+
+        // The memory tier is always fresh: it only lives for one invocation.
+        assert_eq!(
+            cache.get_fresher_than(&key, Some(std::time::Duration::ZERO)),
+            Some(Some("value".to_string()))
+        );
+
+        // Drop to the disk tier only, where age is actually checked.
+        cache.clear_memory();
+        assert_eq!(
+            cache.get_fresher_than(&key, Some(std::time::Duration::from_secs(3600))),
+            Some(Some("value".to_string())),
+            "a just-written entry is within a generous max age"
+        );
+
+        cache.clear_memory();
+        assert_eq!(
+            cache.get_fresher_than(&key, Some(std::time::Duration::ZERO)),
+            None,
+            "a zero max age must treat any disk entry as stale"
+        );
+
+        // No max age means the entry never expires.
+        cache.clear_memory();
+        assert_eq!(
+            cache.get_fresher_than(&key, None),
+            Some(Some("value".to_string()))
+        );
+
+        let _ = cache.invalidate_disk_cache(&key);
+    }
+
+    #[test]
+    fn test_missing_disk_entry_is_a_miss_not_a_hit() {
+        let key = WeeklyStatsCacheKey {
+            player_id: PlayerId::new(999_882),
+            season: Season::new(2098),
+            week: Week::new(98),
+        };
+        let cache: UnifiedCache<WeeklyStatsCacheKey, Option<String>> = UnifiedCache::new(2);
+        let _ = cache.invalidate_disk_cache(&key);
+        cache.clear_memory();
+
+        assert_eq!(
+            cache.get_fresher_than(&key, Some(std::time::Duration::from_secs(3600))),
+            None
+        );
     }
 
     #[test]

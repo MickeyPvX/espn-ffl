@@ -59,8 +59,42 @@ pub struct PlayersFilter {
     // Working injury status filters (confirmed to work with ESPN API)
     #[serde(rename = "filterInjured", skip_serializing_if = "Option::is_none")]
     pub filter_injured: Option<Val<bool>>,
+
+    /// Cap the number of players returned.
+    ///
+    /// Required for preseason draft queries: an unbounded `/players` request returns every
+    /// player and ESPN strips the heavy fields (`ownership`, `draftRanksByRankType`, `stats`)
+    /// from the response. Asking for a bounded set gets them back.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+
+    /// Sort by ESPN's draft ranking, so a `limit` returns the most draft-relevant players.
+    #[serde(rename = "sortDraftRanks", skip_serializing_if = "Option::is_none")]
+    pub sort_draft_ranks: Option<SortDraftRanks>,
     // Note: filterHealthy, filterFreeAgent, filterAvailable, etc. don't seem to work as server-side filters
     // We'll handle roster filtering client-side after getting the data
+}
+
+/// Sort directive for ESPN's draft rankings.
+#[derive(Debug, Serialize)]
+pub struct SortDraftRanks {
+    #[serde(rename = "sortPriority")]
+    pub sort_priority: u8,
+    #[serde(rename = "sortAsc")]
+    pub sort_asc: bool,
+    /// Ranking flavour, e.g. `PPR` or `STANDARD`.
+    pub value: String,
+}
+
+impl SortDraftRanks {
+    /// Sort best-ranked first for the given ranking type.
+    pub fn best_first(rank_type: &str) -> Self {
+        Self {
+            sort_priority: 100,
+            sort_asc: true,
+            value: rank_type.to_string(),
+        }
+    }
 }
 
 /// General-purpose helper: any Serialize → JSON → HeaderValue
@@ -169,7 +203,7 @@ mod tests {
     fn test_build_players_filter_with_active() {
         let filter = build_players_filter(None, None, Some(true), None, None);
         assert!(filter.filter_active.is_some());
-        assert_eq!(filter.filter_active.unwrap().value, true);
+        assert!(filter.filter_active.unwrap().value);
     }
 
     #[test]

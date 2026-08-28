@@ -35,6 +35,56 @@ pub fn select_weekly_stats(
     })
 }
 
+/// Select the whole-season stat block for a season/source.
+///
+/// Season totals are the block with `scoringPeriodId == 0` and `statSplitTypeId == 0`, as
+/// opposed to the per-week blocks [`select_weekly_stats`] looks for. This is what carries a
+/// preseason projection, before any week has been played.
+pub fn select_season_stats(player: &Value, season: u16, stat_source_id: u8) -> Option<&Value> {
+    let stats = player.get("stats")?.as_array()?;
+    stats.iter().find_map(|s| {
+        let season_id = s.get("seasonId").and_then(|v| v.as_u64())? as u16;
+        let sp = s.get("scoringPeriodId").and_then(|v| v.as_u64())? as u16;
+        let src = s.get("statSourceId").and_then(|v| v.as_u64())? as u8;
+        let split = s.get("statSplitTypeId").and_then(|v| v.as_u64())? as u8;
+        if season_id == season && sp == 0 && src == stat_source_id && split == 0 {
+            s.get("stats")
+        } else {
+            None
+        }
+    })
+}
+
+/// Weeks in a season for which the player has a non-empty projected stat block.
+///
+/// ESPN emits a weekly projection block for every week but leaves it empty on a bye, so the
+/// missing week numbers identify byes without a separate schedule lookup.
+pub fn projected_weeks(player: &Value, season: u16) -> Vec<u16> {
+    let Some(stats) = player.get("stats").and_then(|s| s.as_array()) else {
+        return Vec::new();
+    };
+
+    let mut weeks: Vec<u16> = stats
+        .iter()
+        .filter_map(|s| {
+            let season_id = s.get("seasonId").and_then(|v| v.as_u64())? as u16;
+            let sp = s.get("scoringPeriodId").and_then(|v| v.as_u64())? as u16;
+            let src = s.get("statSourceId").and_then(|v| v.as_u64())? as u8;
+            let split = s.get("statSplitTypeId").and_then(|v| v.as_u64())? as u8;
+            let has_stats = s
+                .get("stats")
+                .and_then(|v| v.as_object())
+                .is_some_and(|m| !m.is_empty());
+
+            (season_id == season && sp > 0 && src == 1 && split == 1 && has_stats).then_some(sp)
+        })
+        .collect();
+
+    weeks.sort_unstable();
+    weeks.dedup();
+    weeks
+}
+
 /// Compute fantasy points for one player's week, given their slot and a scoring index.
 pub fn compute_points_for_week(
     weekly_stats_obj: &Value,

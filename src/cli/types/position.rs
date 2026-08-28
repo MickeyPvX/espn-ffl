@@ -1,4 +1,18 @@
 //! Fantasy football position types and utilities.
+//!
+//! # ESPN's two ID spaces
+//!
+//! ESPN uses two *different* numeric tables that are easy to conflate:
+//!
+//! - **`defaultPositionId`** — what a player *is* (QB = 1, RB = 2, WR = 3, TE = 4, K = 5, D/ST = 16).
+//!   This is what appears on a player object.
+//! - **`lineupSlotId`** — a *roster slot* a player may occupy (QB = 0, RB = 2, WR = 4, TE = 6,
+//!   D/ST = 16, K = 17, FLEX = 23, BE = 20, IR = 21). This is what `eligibleSlots`,
+//!   `lineupSlotCounts` and the API's `filterSlotIds` filter speak.
+//!
+//! They overlap numerically without agreeing (slot 4 is WR, position 4 is TE), so the two are
+//! kept strictly apart here: [`Position::from_default_position_id`] / [`Position::default_position_id`]
+//! for the former, [`Position::lineup_slot_ids`] for the latter.
 
 use crate::error::EspnError;
 use std::fmt;
@@ -21,10 +35,16 @@ use std::str::FromStr;
 /// use espn_ffl::Position;
 ///
 /// let qb = Position::QB;
-/// let flex = Position::FLEX;
 /// assert_eq!(qb.to_string(), "QB");
+///
+/// // A player object carries a defaultPositionId...
+/// assert_eq!(Position::from_default_position_id(1).unwrap(), Position::QB);
+/// // ...but the API's filterSlotIds wants lineup slot ids.
+/// assert_eq!(Position::QB.lineup_slot_ids(), vec![0]);
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// Variants are ordered as they conventionally appear on a draft board (skill positions
+/// first, then kicker and defense), and `Ord` follows that declaration order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Position {
     QB,
     RB,
@@ -43,41 +63,47 @@ pub enum Position {
     IR,
 }
 
+/// Lineup slot id for the bench, which every player is eligible for.
+const SLOT_BENCH: u8 = 20;
+/// Lineup slot id for injured reserve, which every player is eligible for.
+const SLOT_IR: u8 = 21;
+
 impl Position {
-    /// Get all ESPN position IDs that this position can represent.
+    /// Lineup slot ids matching this position, for the API's `filterSlotIds` filter.
     ///
-    /// For specific positions, returns a single ID. For flexible positions
-    /// like FLEX, returns multiple IDs representing all eligible positions.
-    pub fn get_all_position_ids(&self) -> Vec<u8> {
+    /// A player is returned by `filterSlotIds` when *any* of their `eligibleSlots` matches,
+    /// so a single slot per position is enough to select exactly that position. FLEX (23)
+    /// is eligible only for RB/WR/TE, which makes it an exact FLEX selector.
+    pub fn lineup_slot_ids(&self) -> Vec<u8> {
         match self {
-            Position::QB => vec![0, 1], // ESPN uses both 0 and 1 for QB
+            Position::QB => vec![0],
             Position::RB => vec![2],
-            Position::WR => vec![3],
-            Position::TE => vec![4, 6], // TE can be position 4 or 6 in ESPN
-            Position::DEF => vec![16],
-            Position::K => vec![5, 17], // K can be position 5 or 17
-            Position::P => vec![7],
-            Position::DT => vec![9],
-            Position::DE => vec![10],
-            Position::LB => vec![11],
+            Position::WR => vec![4],
+            Position::TE => vec![6],
+            Position::DT => vec![8],
+            Position::DE => vec![9],
+            Position::LB => vec![10],
             Position::DB => vec![12],
             Position::S => vec![13],
-            Position::FLEX => vec![2, 3, 4, 6], // RB, WR, TE
-            Position::BE => vec![0, 1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 16, 17], // All positions
-            Position::IR => vec![0, 1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 16, 17], // All positions
+            Position::DEF => vec![16],
+            Position::K => vec![17],
+            Position::P => vec![18],
+            Position::FLEX => vec![23],
+            Position::BE => vec![SLOT_BENCH],
+            Position::IR => vec![SLOT_IR],
         }
     }
 
-    /// Convert a single ESPN position ID to a Position enum.
+    /// Convert an ESPN `defaultPositionId` (from a player object) into a `Position`.
     ///
-    /// Returns the most specific position type for the given ID.
-    pub fn try_from(id: u8) -> Result<Self, EspnError> {
+    /// Rejects non-roster entries such as head coaches (14) and team-QB aggregates (15).
+    pub fn from_default_position_id(id: u8) -> Result<Self, EspnError> {
         match id {
-            0 | 1 => Ok(Position::QB), // ESPN uses both 0 and 1 for QB
+            1 => Ok(Position::QB),
             2 => Ok(Position::RB),
             3 => Ok(Position::WR),
-            4 | 6 => Ok(Position::TE),
-            5 | 17 => Ok(Position::K),
+            4 => Ok(Position::TE),
+            5 => Ok(Position::K),
             7 => Ok(Position::P),
             9 => Ok(Position::DT),
             10 => Ok(Position::DE),
@@ -85,9 +111,11 @@ impl Position {
             12 => Ok(Position::DB),
             13 => Ok(Position::S),
             16 => Ok(Position::DEF),
-            // Reject coaches and other non-player positions
             14 => Err(EspnError::InvalidPosition {
                 position: format!("COACH (id: {})", id),
+            }),
+            15 => Err(EspnError::InvalidPosition {
+                position: format!("TEAM_QB (id: {})", id),
             }),
             _ => Err(EspnError::InvalidPosition {
                 position: (id as u32).to_string(),
@@ -95,27 +123,47 @@ impl Position {
         }
     }
 
-    /// Get the primary ESPN position ID for this position.
+    /// The ESPN `defaultPositionId` for this position.
     ///
-    /// For positions that can have multiple IDs, returns the most common one.
-    pub fn to_u8(&self) -> u8 {
+    /// Returns `None` for slot-only pseudo-positions (FLEX, BE, IR), which describe a
+    /// roster slot rather than a kind of player.
+    pub fn default_position_id(&self) -> Option<u8> {
         match self {
-            Position::QB => 0,
-            Position::RB => 2,
-            Position::WR => 3,
-            Position::TE => 4,
-            Position::DEF => 16,
-            Position::K => 5,
-            Position::P => 7,
-            Position::DT => 9,
-            Position::DE => 10,
-            Position::LB => 11,
-            Position::DB => 12,
-            Position::S => 13,
-            Position::FLEX => 23, // ESPN's FLEX position ID
-            Position::BE => 20,   // ESPN's Bench position ID
-            Position::IR => 21,   // ESPN's IR position ID
+            Position::QB => Some(1),
+            Position::RB => Some(2),
+            Position::WR => Some(3),
+            Position::TE => Some(4),
+            Position::K => Some(5),
+            Position::P => Some(7),
+            Position::DT => Some(9),
+            Position::DE => Some(10),
+            Position::LB => Some(11),
+            Position::DB => Some(12),
+            Position::S => Some(13),
+            Position::DEF => Some(16),
+            Position::FLEX | Position::BE | Position::IR => None,
         }
+    }
+
+    /// Whether this position can fill the given lineup slot.
+    ///
+    /// FLEX accepts RB/WR/TE; bench and IR accept anyone.
+    pub fn fills_slot(&self, slot: u8) -> bool {
+        match slot {
+            SLOT_BENCH | SLOT_IR => true,
+            23 => matches!(self, Position::RB | Position::WR | Position::TE),
+            _ => self.lineup_slot_ids().contains(&slot),
+        }
+    }
+
+    /// Positions that occupy a starting lineup slot in a standard league.
+    ///
+    /// Used to decide which positions a draft board should rank.
+    pub fn is_offensive_skill(&self) -> bool {
+        matches!(
+            self,
+            Position::QB | Position::RB | Position::WR | Position::TE
+        )
     }
 }
 
@@ -162,8 +210,8 @@ impl FromStr for Position {
             "FLEX" => Ok(Position::FLEX),
             "BE" | "BENCH" => Ok(Position::BE),
             "IR" => Ok(Position::IR),
-            _ => Err(EspnError::InvalidPosition {
-                position: "999".to_string(), // Use 999 for string parse errors
+            other => Err(EspnError::InvalidPosition {
+                position: other.to_string(),
             }),
         }
     }
@@ -173,63 +221,95 @@ impl FromStr for Position {
 mod tests {
     use super::*;
 
+    /// Slot ids verified against live `filterSlotIds` responses: querying each slot returns
+    /// players of exactly one `defaultPositionId` (except FLEX, which returns RB/WR/TE).
     #[test]
-    fn test_all_position_id_mappings() {
-        // Test that all ESPN position IDs map correctly to Position enums
-        // and that flexible positions include all their eligible position IDs
+    fn test_lineup_slot_ids_are_position_exact() {
+        assert_eq!(Position::QB.lineup_slot_ids(), vec![0]);
+        assert_eq!(Position::RB.lineup_slot_ids(), vec![2]);
+        assert_eq!(Position::WR.lineup_slot_ids(), vec![4]);
+        assert_eq!(Position::TE.lineup_slot_ids(), vec![6]);
+        assert_eq!(Position::DEF.lineup_slot_ids(), vec![16]);
+        assert_eq!(Position::K.lineup_slot_ids(), vec![17]);
+        assert_eq!(Position::FLEX.lineup_slot_ids(), vec![23]);
+    }
 
-        // Test primary position IDs
-        assert_eq!(Position::try_from(0).unwrap(), Position::QB);
-        assert_eq!(Position::try_from(1).unwrap(), Position::QB); // Alternate QB ID
-        assert_eq!(Position::try_from(2).unwrap(), Position::RB);
-        assert_eq!(Position::try_from(3).unwrap(), Position::WR);
-        assert_eq!(Position::try_from(4).unwrap(), Position::TE);
-        assert_eq!(Position::try_from(5).unwrap(), Position::K);
-        assert_eq!(Position::try_from(6).unwrap(), Position::TE); // Alternate TE ID
-        assert_eq!(Position::try_from(16).unwrap(), Position::DEF);
-        assert_eq!(Position::try_from(17).unwrap(), Position::K); // Alternate K ID
+    #[test]
+    fn test_default_position_id_round_trip() {
+        for pos in [
+            Position::QB,
+            Position::RB,
+            Position::WR,
+            Position::TE,
+            Position::K,
+            Position::P,
+            Position::DT,
+            Position::DE,
+            Position::LB,
+            Position::DB,
+            Position::S,
+            Position::DEF,
+        ] {
+            let id = pos.default_position_id().expect("real position has an id");
+            assert_eq!(
+                Position::from_default_position_id(id).unwrap(),
+                pos,
+                "round trip failed for {}",
+                pos
+            );
+        }
+    }
 
-        // Test invalid position ID
-        assert!(Position::try_from(99).is_err());
+    #[test]
+    fn test_slot_only_positions_have_no_default_position_id() {
+        assert_eq!(Position::FLEX.default_position_id(), None);
+        assert_eq!(Position::BE.default_position_id(), None);
+        assert_eq!(Position::IR.default_position_id(), None);
+    }
 
-        // Test that get_all_position_ids includes all variants
-        assert_eq!(Position::QB.get_all_position_ids(), vec![0, 1]);
-        assert_eq!(Position::RB.get_all_position_ids(), vec![2]);
-        assert_eq!(Position::WR.get_all_position_ids(), vec![3]);
-        assert_eq!(Position::TE.get_all_position_ids(), vec![4, 6]);
-        assert_eq!(Position::K.get_all_position_ids(), vec![5, 17]);
-        assert_eq!(Position::DEF.get_all_position_ids(), vec![16]);
+    #[test]
+    fn test_from_default_position_id_rejects_non_players() {
+        // 14 = head coach, 15 = team QB aggregate; neither is a draftable player.
+        assert!(Position::from_default_position_id(14).is_err());
+        assert!(Position::from_default_position_id(15).is_err());
+        assert!(Position::from_default_position_id(99).is_err());
+        // 0 is not a valid defaultPositionId (it is the QB *slot*).
+        assert!(Position::from_default_position_id(0).is_err());
+    }
 
-        // Test FLEX includes RB, WR, TE
-        let flex_ids = Position::FLEX.get_all_position_ids();
-        assert!(flex_ids.contains(&2)); // RB
-        assert!(flex_ids.contains(&3)); // WR
-        assert!(flex_ids.contains(&4)); // TE primary
-        assert!(flex_ids.contains(&6)); // TE alternate
-        assert!(!flex_ids.contains(&0)); // Not QB
-        assert!(!flex_ids.contains(&5)); // Not K
+    #[test]
+    fn test_position_and_slot_spaces_differ() {
+        // The regression this module guards: slot 4 is WR, but position 4 is TE.
+        assert_eq!(Position::WR.lineup_slot_ids(), vec![4]);
+        assert_eq!(Position::from_default_position_id(4).unwrap(), Position::TE);
+        // Likewise slot 17 is K while position 17 is meaningless.
+        assert_eq!(Position::K.lineup_slot_ids(), vec![17]);
+        assert!(Position::from_default_position_id(17).is_err());
+    }
+
+    #[test]
+    fn test_fills_slot() {
+        assert!(Position::RB.fills_slot(23));
+        assert!(Position::WR.fills_slot(23));
+        assert!(Position::TE.fills_slot(23));
+        assert!(!Position::QB.fills_slot(23));
+        assert!(!Position::K.fills_slot(23));
+
+        assert!(Position::QB.fills_slot(0));
+        assert!(!Position::RB.fills_slot(0));
+
+        // Everyone can sit on the bench or land on IR.
+        assert!(Position::K.fills_slot(SLOT_BENCH));
+        assert!(Position::DEF.fills_slot(SLOT_IR));
     }
 
     #[test]
     fn test_position_string_conversion() {
-        // Test that position enums convert to correct strings
         assert_eq!(Position::QB.to_string(), "QB");
-        assert_eq!(Position::RB.to_string(), "RB");
-        assert_eq!(Position::WR.to_string(), "WR");
-        assert_eq!(Position::TE.to_string(), "TE");
-        assert_eq!(Position::K.to_string(), "K");
         assert_eq!(Position::DEF.to_string(), "D/ST");
         assert_eq!(Position::FLEX.to_string(), "FLEX");
-    }
-
-    #[test]
-    fn test_position_primary_ids() {
-        // Test that to_u8() returns the primary/most common ID
-        assert_eq!(Position::QB.to_u8(), 0);
-        assert_eq!(Position::RB.to_u8(), 2);
-        assert_eq!(Position::WR.to_u8(), 3);
-        assert_eq!(Position::TE.to_u8(), 4); // Primary TE ID is 4, not 6
-        assert_eq!(Position::K.to_u8(), 5); // Primary K ID is 5, not 17
-        assert_eq!(Position::DEF.to_u8(), 16);
+        assert_eq!("dst".parse::<Position>().unwrap(), Position::DEF);
+        assert_eq!("flex".parse::<Position>().unwrap(), Position::FLEX);
+        assert!("nonsense".parse::<Position>().is_err());
     }
 }

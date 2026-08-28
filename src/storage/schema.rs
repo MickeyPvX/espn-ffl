@@ -1,7 +1,7 @@
 //! Database schema and connection management
 
 use crate::error::EspnError;
-use anyhow::Result;
+use crate::error::Result;
 use dirs::cache_dir;
 use rusqlite::Connection;
 use std::path::PathBuf;
@@ -44,80 +44,100 @@ impl PlayerDatabase {
         Ok(cache_dir.join("espn-ffl").join("players.db"))
     }
 
-    /// Initialize the database schema
-    pub(crate) fn initialize_schema(&mut self) -> Result<()> {
-        // Create players table
-        self.conn.execute(
-            "CREATE TABLE IF NOT EXISTS players (
-                player_id INTEGER PRIMARY KEY,
-                name TEXT NOT NULL,
-                position TEXT NOT NULL,
-                team TEXT
-            )",
-            [],
-        )?;
+    /// Schema version this build expects. Bump when adding a migration below.
+    const SCHEMA_VERSION: u32 = 1;
 
-        // Create player_weekly_stats table
-        self.conn.execute(
-            "CREATE TABLE IF NOT EXISTS player_weekly_stats (
-                player_id INTEGER,
-                season INTEGER,
-                week INTEGER,
-                projected_points REAL,
-                actual_points REAL,
-                active INTEGER,
-                injured INTEGER,
-                injury_status TEXT,
-                is_rostered INTEGER,
-                fantasy_team_id INTEGER,
-                fantasy_team_name TEXT,
-                created_at INTEGER NOT NULL,
-                updated_at INTEGER NOT NULL,
-                PRIMARY KEY (player_id, season, week),
-                FOREIGN KEY (player_id) REFERENCES players(player_id)
-            )",
-            [],
-        )?;
+    /// Initialize the database schema, applying any migrations the file is missing.
+    ///
+    /// Version is tracked in SQLite's own `user_version` pragma rather than by issuing
+    /// `ALTER TABLE` statements and discarding the errors, so each migration runs exactly once
+    /// and a genuine failure is no longer silently swallowed.
+    ///
+    /// Safe to call repeatedly: once the file is at [`Self::SCHEMA_VERSION`] it returns
+    /// immediately without touching the database.
+    pub fn initialize_schema(&mut self) -> Result<()> {
+        let current: u32 = self
+            .conn
+            .query_row("PRAGMA user_version", [], |row| row.get::<_, i64>(0))?
+            as u32;
 
-        // Add new columns if they don't exist (for database migration)
-        let _ = self.conn.execute(
-            "ALTER TABLE player_weekly_stats ADD COLUMN active INTEGER",
-            [],
-        );
-        let _ = self.conn.execute(
-            "ALTER TABLE player_weekly_stats ADD COLUMN injured INTEGER",
-            [],
-        );
-        let _ = self.conn.execute(
-            "ALTER TABLE player_weekly_stats ADD COLUMN injury_status TEXT",
-            [],
-        );
-        let _ = self.conn.execute(
-            "ALTER TABLE player_weekly_stats ADD COLUMN is_rostered INTEGER",
-            [],
-        );
-        let _ = self.conn.execute(
-            "ALTER TABLE player_weekly_stats ADD COLUMN fantasy_team_id INTEGER",
-            [],
-        );
-        let _ = self.conn.execute(
-            "ALTER TABLE player_weekly_stats ADD COLUMN fantasy_team_name TEXT",
-            [],
-        );
+        if current >= Self::SCHEMA_VERSION {
+            return Ok(());
+        }
 
-        // Create indexes for performance
-        self.conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_player_season_week
-             ON player_weekly_stats(season, week)",
-            [],
-        )?;
+        let tx = self.conn.transaction()?;
 
-        self.conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_projection_diff
-             ON player_weekly_stats(projected_points, actual_points)
-             WHERE projected_points IS NOT NULL AND actual_points IS NOT NULL",
-            [],
-        )?;
+        if current < 1 {
+            tx.execute_batch(
+                "CREATE TABLE IF NOT EXISTS players (
+                    player_id INTEGER PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    position TEXT NOT NULL,
+                    team TEXT
+                );
+
+                CREATE TABLE IF NOT EXISTS player_weekly_stats (
+                    player_id INTEGER,
+                    season INTEGER,
+                    week INTEGER,
+                    projected_points REAL,
+                    actual_points REAL,
+                    active INTEGER,
+                    injured INTEGER,
+                    injury_status TEXT,
+                    is_rostered INTEGER,
+                    fantasy_team_id INTEGER,
+                    fantasy_team_name TEXT,
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL,
+                    PRIMARY KEY (player_id, season, week),
+                    FOREIGN KEY (player_id) REFERENCES players(player_id)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_player_season_week
+                    ON player_weekly_stats(season, week);
+
+                CREATE INDEX IF NOT EXISTS idx_projection_diff
+                    ON player_weekly_stats(projected_points, actual_points)
+                    WHERE projected_points IS NOT NULL AND actual_points IS NOT NULL;",
+            )?;
+
+            // Databases created before user_version tracking may predate these columns.
+            Self::add_column_if_missing(&tx, "player_weekly_stats", "active", "INTEGER")?;
+            Self::add_column_if_missing(&tx, "player_weekly_stats", "injured", "INTEGER")?;
+            Self::add_column_if_missing(&tx, "player_weekly_stats", "injury_status", "TEXT")?;
+            Self::add_column_if_missing(&tx, "player_weekly_stats", "is_rostered", "INTEGER")?;
+            Self::add_column_if_missing(&tx, "player_weekly_stats", "fantasy_team_id", "INTEGER")?;
+            Self::add_column_if_missing(&tx, "player_weekly_stats", "fantasy_team_name", "TEXT")?;
+        }
+
+        tx.pragma_update(None, "user_version", Self::SCHEMA_VERSION)?;
+        tx.commit()?;
+
+        Ok(())
+    }
+
+    /// Add a column only when the table does not already have it.
+    fn add_column_if_missing(
+        conn: &Connection,
+        table: &str,
+        column: &str,
+        column_type: &str,
+    ) -> Result<()> {
+        let mut stmt = conn.prepare(&format!("PRAGMA table_info({})", table))?;
+        let existing: Vec<String> = stmt
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<rusqlite::Result<_>>()?;
+
+        if !existing.iter().any(|name| name == column) {
+            conn.execute(
+                &format!(
+                    "ALTER TABLE {} ADD COLUMN {} {}",
+                    table, column, column_type
+                ),
+                [],
+            )?;
+        }
 
         Ok(())
     }

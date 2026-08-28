@@ -34,6 +34,13 @@ pub struct PlayerDataRequest {
     pub positions: Option<Vec<Position>>,
     pub injury_status_filter: Option<InjuryStatusFilter>,
     pub roster_status_filter: Option<RosterStatusFilter>,
+    /// Lineup slots to request when the caller gave no explicit position filter.
+    ///
+    /// Without this, ESPN returns every player it knows about — including individual
+    /// defensive players, punters and coaches that no standard league can start and that
+    /// [`crate::commands::player_filters::filter_and_convert_players`] discards on arrival.
+    /// Populating it from the league's own roster settings roughly halves the response.
+    pub fallback_slot_ids: Option<Vec<u8>>,
 }
 
 impl PlayerDataRequest {
@@ -49,43 +56,8 @@ impl PlayerDataRequest {
             positions: None,
             injury_status_filter: None,
             roster_status_filter: None,
+            fallback_slot_ids: None,
         }
-    }
-
-    /// Enable debug output.
-    pub fn with_debug(mut self) -> Self {
-        self.debug = true;
-        self
-    }
-
-    /// Enable refresh mode to bypass cache.
-    pub fn with_refresh(mut self) -> Self {
-        self.refresh = true;
-        self
-    }
-
-    /// Filter by specific player names.
-    pub fn with_player_names(mut self, names: Vec<String>) -> Self {
-        self.player_names = Some(names);
-        self
-    }
-
-    /// Filter by positions.
-    pub fn with_positions(mut self, positions: Vec<Position>) -> Self {
-        self.positions = Some(positions);
-        self
-    }
-
-    /// Filter by injury status.
-    pub fn with_injury_filter(mut self, filter: InjuryStatusFilter) -> Self {
-        self.injury_status_filter = Some(filter);
-        self
-    }
-
-    /// Filter by roster status.
-    pub fn with_roster_filter(mut self, filter: RosterStatusFilter) -> Self {
-        self.roster_status_filter = Some(filter);
-        self
     }
 }
 
@@ -95,6 +67,114 @@ static CLIENT: LazyLock<Client> = LazyLock::new(|| {
         .build()
         .expect("Failed to build http client")
 });
+
+/// How many times to attempt a request that ESPN throttles or that fails transiently.
+const MAX_ATTEMPTS: u32 = 4;
+
+/// Base delay for exponential backoff between retries.
+const RETRY_BASE_DELAY: std::time::Duration = std::time::Duration::from_millis(750);
+
+/// How long a cached draft pool stays usable before it is refetched.
+const DRAFT_POOL_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(6 * 60 * 60);
+
+/// How long cached data for the season in progress stays usable.
+///
+/// Kept short because a live week moves: projections are revised through the week, rosters
+/// churn on waivers, and actual points change play by play. Finished seasons are exempt
+/// entirely — see [`season_cache_max_age`].
+const LIVE_SEASON_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+
+/// Disk-cache lifetime for data belonging to a given season.
+///
+/// A completed season is final, so its cached responses never expire. The season in progress
+/// gets [`LIVE_SEASON_MAX_AGE`].
+///
+/// This deliberately applies to every week of the live season rather than only the current
+/// one, which costs little in practice: once a week is settled its numbers land in the local
+/// database, and [`crate::commands::player_data::handle_player_data`] serves those without
+/// issuing an HTTP request at all. The TTL therefore mostly governs weeks still in motion.
+fn season_cache_max_age(season: Season) -> Option<std::time::Duration> {
+    if season < Season::current() {
+        None
+    } else {
+        Some(LIVE_SEASON_MAX_AGE)
+    }
+}
+
+/// Minimum gap between consecutive requests to ESPN.
+///
+/// ESPN publishes no rate limit, so the tool paces itself rather than discovering one the
+/// hard way. Bulk operations issue dozens of multi-megabyte requests back to back, which is
+/// exactly the shape of traffic that gets an account throttled.
+const MIN_REQUEST_INTERVAL: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// Timestamp of the last request, used to space requests out.
+static LAST_REQUEST: LazyLock<tokio::sync::Mutex<Option<std::time::Instant>>> =
+    LazyLock::new(|| tokio::sync::Mutex::new(None));
+
+/// Wait long enough that this request is at least [`MIN_REQUEST_INTERVAL`] after the last.
+async fn pace_request() {
+    let mut last = LAST_REQUEST.lock().await;
+    if let Some(prev) = *last {
+        let elapsed = prev.elapsed();
+        if elapsed < MIN_REQUEST_INTERVAL {
+            tokio::time::sleep(MIN_REQUEST_INTERVAL - elapsed).await;
+        }
+    }
+    *last = Some(std::time::Instant::now());
+}
+
+/// Send a request, backing off and retrying when ESPN throttles or hiccups.
+///
+/// Retries on 429 and 5xx, honouring a `Retry-After` header when ESPN sends one and falling
+/// back to exponential backoff otherwise. Client errors other than 429 (a bad cookie, an
+/// unknown league) fail immediately, since retrying them would not help.
+async fn send_json(request: reqwest::RequestBuilder, debug: bool) -> Result<Value> {
+    for attempt in 1..=MAX_ATTEMPTS {
+        // Clone before sending so the builder survives for the next attempt. try_clone only
+        // returns None for streaming bodies, which none of these GET requests use; if it
+        // ever does, fall through to a single un-retried attempt.
+        let Some(attempt_request) = request.try_clone() else {
+            pace_request().await;
+            return Ok(request.send().await?.error_for_status()?.json().await?);
+        };
+
+        pace_request().await;
+        let response = attempt_request.send().await?;
+        let status = response.status();
+
+        let throttled = status.as_u16() == 429;
+        let retryable = throttled || status.is_server_error();
+
+        // Success, or a client error that retrying cannot fix (bad cookie, unknown league).
+        if !retryable || attempt == MAX_ATTEMPTS {
+            return Ok(response.error_for_status()?.json().await?);
+        }
+
+        let delay = retry_after(&response).unwrap_or(RETRY_BASE_DELAY * 2u32.pow(attempt - 1));
+        if debug || throttled {
+            eprintln!(
+                "ESPN returned {} - backing off {:.1}s (attempt {}/{})",
+                status,
+                delay.as_secs_f64(),
+                attempt,
+                MAX_ATTEMPTS
+            );
+        }
+        tokio::time::sleep(delay).await;
+    }
+
+    // The loop always returns on its final attempt.
+    unreachable!("send_json exhausted attempts without returning")
+}
+
+/// Parse a `Retry-After` header, which ESPN sends as whole seconds.
+fn retry_after(response: &reqwest::Response) -> Option<std::time::Duration> {
+    let raw = response.headers().get(reqwest::header::RETRY_AFTER)?;
+    let secs: u64 = raw.to_str().ok()?.trim().parse().ok()?;
+    // Guard against an absurd value pinning the CLI for hours.
+    Some(std::time::Duration::from_secs(secs.min(60)))
+}
 
 /// Build HTTP headers for ESPN API requests.
 ///
@@ -118,10 +198,9 @@ pub async fn get_league_settings(league_id: LeagueId, season: Season) -> Result<
     // Create cache key
     let cache_key = LeagueSettingsCacheKey { league_id, season };
 
-    // Check cache first (temporarily disabled for debug)
-    // if let Some(cached_result) = GLOBAL_CACHE.league_settings.get(&cache_key) {
-    //     return Ok(cached_result);
-    // }
+    if let Some(cached_result) = GLOBAL_CACHE.league_settings.get(&cache_key) {
+        return Ok(cached_result);
+    }
 
     let url = format!(
         "{FFL_BASE_URL}/seasons/{}/segments/0/leagues/{}",
@@ -132,18 +211,106 @@ pub async fn get_league_settings(league_id: LeagueId, season: Season) -> Result<
     let headers = build_espn_headers()?;
 
     // tarpaulin::skip - HTTP client call
-    let res = CLIENT
-        .get(&url)
-        .headers(headers)
-        .query(&params)
-        .send()
-        .await?
-        .error_for_status()?
-        .json::<Value>()
-        .await?;
+    let res = send_json(CLIENT.get(&url).headers(headers).query(&params), false).await?;
 
     // Cache the result
     GLOBAL_CACHE.league_settings.put(cache_key, res.clone());
+
+    Ok(res)
+}
+
+/// Fetch a league endpoint with an arbitrary set of `view` parameters, bypassing the cache.
+///
+/// Used for views whose value is their freshness (live draft state), where a cache hit would
+/// defeat the purpose.
+pub async fn get_league_view(league_id: LeagueId, season: Season, views: &[&str]) -> Result<Value> {
+    let url = format!(
+        "{FFL_BASE_URL}/seasons/{}/segments/0/leagues/{}",
+        season.as_u16(),
+        league_id.as_u32()
+    );
+    let params: Vec<(&str, &str)> = views.iter().map(|v| ("view", *v)).collect();
+    let headers = build_espn_headers()?;
+
+    let res = send_json(CLIENT.get(&url).headers(headers).query(&params), false).await?;
+
+    Ok(res)
+}
+
+/// Fetch preseason player data suitable for building a draft board.
+///
+/// Differs from [`get_player_data`] in two ways that matter before a season starts: it asks
+/// for `scoringPeriodId=0` (season totals rather than a specific week) and it sends a `limit`
+/// plus a draft-rank sort. The limit is not just an optimisation — an unbounded query makes
+/// ESPN drop `ownership`, `draftRanksByRankType` and `stats` from every player.
+/// Deliberately takes no position filter: replacement levels and value ranks are only
+/// meaningful when computed across the whole pool, so narrowing to one position belongs at
+/// display time rather than here.
+pub async fn get_draft_pool(
+    league_id: LeagueId,
+    season: Season,
+    limit: u32,
+    rank_type: &str,
+    refresh: bool,
+    debug: bool,
+) -> Result<Value> {
+    use crate::core::cache::DraftPoolCacheKey;
+    use crate::core::filters::{PlayersFilter, SortDraftRanks, Val};
+
+    let cache_key = DraftPoolCacheKey {
+        league_id,
+        season,
+        limit,
+        rank_type: rank_type.to_string(),
+    };
+
+    // The pool is ~10 MB and its contents move slowly: projections are refreshed by ESPN
+    // roughly daily and ADP drifts over hours, so a short-lived disk cache spares repeated
+    // draft-board runs from re-downloading it while staying current enough to draft on.
+    if !refresh {
+        if let Some(cached) = GLOBAL_CACHE
+            .draft_pool
+            .get_fresher_than(&cache_key, Some(DRAFT_POOL_MAX_AGE))
+        {
+            if debug {
+                eprintln!("draft pool: cache hit");
+            }
+            return Ok(cached);
+        }
+    }
+
+    let mut filter = PlayersFilter {
+        limit: Some(limit),
+        sort_draft_ranks: Some(SortDraftRanks::best_first(rank_type)),
+        ..Default::default()
+    };
+    filter.filter_active = Some(Val { value: true });
+
+    let mut headers = build_espn_headers()?;
+    headers.insert("x-fantasy-filter", filter.to_header_value()?);
+
+    let url = format!("{FFL_BASE_URL}/seasons/{}/players", season.as_u16());
+    let params = [
+        ("forLeagueId", league_id.to_string()),
+        ("view", "kona_player_info".to_string()),
+        // Season totals live under scoring period 0.
+        ("scoringPeriodId", "0".to_string()),
+    ];
+
+    if debug {
+        eprintln!("URL => {}", url);
+        eprintln!("Params => {:?}", params);
+        if let Some(f) = headers
+            .get("x-fantasy-filter")
+            .and_then(|v| v.to_str().ok())
+        {
+            eprintln!("x-fantasy-filter => {}", f);
+        }
+    }
+
+    let res = send_json(CLIENT.get(&url).headers(headers).query(&params), debug).await?;
+
+    GLOBAL_CACHE.draft_pool.put(cache_key, res.clone());
 
     Ok(res)
 }
@@ -160,19 +327,25 @@ pub async fn get_player_data(request: PlayerDataRequest) -> Result<Value> {
         projected: false, // This function gets actual data
     };
 
-    // Check cache first (but skip if debug mode or refresh flag is set)
+    // Check cache first (but skip if debug mode or refresh flag is set). Data for the live
+    // season ages out; a finished season's numbers are final and kept indefinitely.
     if !request.debug && !request.refresh {
-        if let Some(cached_result) = GLOBAL_CACHE.http_player_data.get(&cache_key) {
+        if let Some(cached_result) = GLOBAL_CACHE
+            .http_player_data
+            .get_fresher_than(&cache_key, season_cache_max_age(request.season))
+        {
             return Ok(cached_result);
         }
     }
 
     // Build the filters from cli args
-    let slots: Option<Vec<u8>> = request.positions.map(|ps| {
-        ps.into_iter()
-            .flat_map(|p| p.get_all_position_ids())
-            .collect()
-    });
+    // `filterSlotIds` speaks ESPN's lineup-slot space, not the defaultPositionId space.
+    // With no explicit position filter, fall back to the slots the league can actually
+    // roster rather than downloading every player ESPN tracks.
+    let slots: Option<Vec<u8>> = request
+        .positions
+        .map(|ps| ps.into_iter().flat_map(|p| p.lineup_slot_ids()).collect())
+        .or(request.fallback_slot_ids);
     let players_filter = build_players_filter(
         request.player_names,
         slots,
@@ -209,15 +382,11 @@ pub async fn get_player_data(request: PlayerDataRequest) -> Result<Value> {
     }
 
     // tarpaulin::skip - HTTP client call
-    let players_val = CLIENT
-        .get(&url)
-        .headers(headers)
-        .query(&params)
-        .send()
-        .await?
-        .error_for_status()?
-        .json::<Value>()
-        .await?;
+    let players_val = send_json(
+        CLIENT.get(&url).headers(headers).query(&params),
+        request.debug,
+    )
+    .await?;
 
     // Cache the result (but not in debug mode)
     if !request.debug {
@@ -244,9 +413,13 @@ pub async fn get_league_rosters_with_cache_status(
         week,
     };
 
-    // Check cache first (but skip if debug mode or refresh flag is set)
+    // Check cache first (but skip if debug mode or refresh flag is set). Rosters churn on
+    // waivers and trades, so live-season entries age out the same way player data does.
     if !debug && !refresh {
-        if let Some(cached_result) = GLOBAL_CACHE.roster_data.get(&cache_key) {
+        if let Some(cached_result) = GLOBAL_CACHE
+            .roster_data
+            .get_fresher_than(&cache_key, season_cache_max_age(season))
+        {
             return Ok((cached_result, CacheStatus::Hit));
         }
     }
@@ -278,15 +451,7 @@ pub async fn get_league_rosters_with_cache_status(
         eprintln!("Params => {:?}", params);
     }
 
-    let res = CLIENT
-        .get(&url)
-        .headers(headers)
-        .query(&params)
-        .send()
-        .await?
-        .error_for_status()?
-        .json::<Value>()
-        .await?;
+    let res = send_json(CLIENT.get(&url).headers(headers).query(&params), debug).await?;
 
     if debug {
         eprintln!("RAW ROSTER API RESPONSE:");
@@ -303,88 +468,6 @@ pub async fn get_league_rosters_with_cache_status(
     }
 
     Ok((res, cache_status))
-}
-
-/// Get league roster information (teams and their players) - backward compatibility
-pub async fn get_league_rosters(
-    debug: bool,
-    league_id: LeagueId,
-    season: Season,
-    week: Option<Week>,
-    refresh: bool,
-) -> Result<Value> {
-    let (data, _status) =
-        get_league_rosters_with_cache_status(debug, league_id, season, week, refresh).await?;
-    Ok(data)
-}
-
-/// Get detailed player information including injury status
-pub async fn get_player_info(
-    debug: bool,
-    league_id: LeagueId,
-    season: Season,
-    week: Week,
-) -> Result<Value> {
-    let url = format!("{FFL_BASE_URL}/seasons/{}/players", season.as_u16());
-    let params = [
-        ("forLeagueId", league_id.to_string()),
-        ("view", "players_wl".to_string()), // "wl" often means "with lineup" or detailed info
-        ("scoringPeriodId", week.as_u16().to_string()),
-    ];
-
-    let headers = build_espn_headers()?;
-
-    if debug {
-        eprintln!("URL => {}", url);
-        eprintln!("Params => {:?}", params);
-    }
-
-    let res = CLIENT
-        .get(&url)
-        .headers(headers)
-        .query(&params)
-        .send()
-        .await?
-        .error_for_status()?
-        .json::<Value>()
-        .await?;
-
-    Ok(res)
-}
-
-/// Test different view parameters to find player status information
-pub async fn get_player_data_with_view(
-    debug: bool,
-    league_id: LeagueId,
-    season: Season,
-    week: Week,
-    view: &str,
-) -> Result<Value> {
-    let url = format!("{FFL_BASE_URL}/seasons/{}/players", season.as_u16());
-    let params = [
-        ("forLeagueId", league_id.to_string()),
-        ("view", view.to_string()),
-        ("scoringPeriodId", week.as_u16().to_string()),
-    ];
-
-    let headers = build_espn_headers()?;
-
-    if debug {
-        eprintln!("URL => {}", url);
-        eprintln!("Params => {:?}", params);
-    }
-
-    let res = CLIENT
-        .get(&url)
-        .headers(headers)
-        .query(&params)
-        .send()
-        .await?
-        .error_for_status()?
-        .json::<Value>()
-        .await?;
-
-    Ok(res)
 }
 
 /// Cache status for roster data
@@ -407,38 +490,6 @@ pub async fn get_league_roster_data(
         get_league_rosters_with_cache_status(debug, league_id, season, week, refresh).await?;
     let league_data: crate::espn::types::LeagueData = serde_json::from_value(roster_data)?;
     Ok((league_data, cache_status))
-}
-
-/// Fetch roster data and update PlayerPoints with roster information
-/// Fetch current league roster data once for efficient reuse
-///
-/// This function fetches the most recent roster information, which is what we need
-/// for determining current team affiliations. Unlike historical data, current roster
-/// information doesn't change based on the week being queried.
-pub async fn fetch_current_roster_data(
-    league_id: LeagueId,
-    season: Season,
-    verbose: bool,
-    refresh: bool,
-) -> Result<Option<(crate::espn::types::LeagueData, CacheStatus)>> {
-    if verbose {
-        println!("Checking league roster status...");
-    }
-
-    match get_league_roster_data(false, league_id, season, None, refresh).await {
-        Ok((league_data, cache_status)) => {
-            if verbose {
-                println!("✓ Roster status fetched");
-            }
-            Ok(Some((league_data, cache_status)))
-        }
-        Err(e) => {
-            if verbose {
-                println!("⚠ Could not fetch roster data: {}", e);
-            }
-            Ok(None)
-        }
-    }
 }
 
 /// Update player points with pre-fetched roster information
@@ -468,64 +519,4 @@ pub fn update_player_points_with_roster_data(
             player.is_rostered = None;
         }
     }
-}
-
-/// Legacy function - kept for backward compatibility
-///
-/// This function is less efficient as it makes a separate API call.
-/// Use `fetch_current_roster_data` + `update_player_points_with_roster_data` instead.
-pub async fn update_player_points_with_roster_info(
-    player_points: &mut [crate::espn::types::PlayerPoints],
-    league_id: LeagueId,
-    season: Season,
-    verbose: bool,
-    refresh: bool,
-) -> Result<()> {
-    let roster_data = fetch_current_roster_data(league_id, season, verbose, refresh).await?;
-    if let Some((league_data, _cache_status)) = roster_data {
-        update_player_points_with_roster_data(player_points, Some(&league_data), verbose);
-    } else {
-        update_player_points_with_roster_data(player_points, None, verbose);
-    }
-    Ok(())
-}
-
-/// Test function to try custom filter parameters with ESPN API
-pub async fn get_player_data_with_custom_filter(
-    debug: bool,
-    league_id: LeagueId,
-    season: Season,
-    week: Week,
-    custom_filter_json: &str,
-) -> Result<Value> {
-    let url = format!("{FFL_BASE_URL}/seasons/{}/players", season.as_u16());
-    let params = [
-        ("forLeagueId", league_id.to_string()),
-        ("view", "kona_player_info".to_string()),
-        ("scoringPeriodId", week.as_u16().to_string()),
-    ];
-
-    let mut headers = build_espn_headers()?;
-    headers.insert(
-        "x-fantasy-filter",
-        HeaderValue::from_str(custom_filter_json)?,
-    );
-
-    if debug {
-        eprintln!("URL => {}", url);
-        eprintln!("Params => {:?}", params);
-        eprintln!("Custom filter => {}", custom_filter_json);
-    }
-
-    let res = CLIENT
-        .get(&url)
-        .headers(headers)
-        .query(&params)
-        .send()
-        .await?
-        .error_for_status()?
-        .json::<Value>()
-        .await?;
-
-    Ok(res)
 }

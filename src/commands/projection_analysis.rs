@@ -13,7 +13,9 @@ use crate::{
 };
 
 use super::{
-    common::{CommandParams, CommandParamsBuilder},
+    common::{
+        fetch_roster_data_with_message, scoring_slot_id, CommandParams, CommandParamsBuilder,
+    },
     league_data::resolve_league_id,
     player_filters::{
         filter_and_convert_players, matches_fantasy_team_filter, matches_injury_filter,
@@ -58,51 +60,22 @@ pub async fn handle_projection_analysis(params: ProjectionAnalysisParams) -> Res
     let db = PlayerDatabase::new()?;
 
     // Fetch week-specific roster data to match the week being analyzed
-    let roster_data = match crate::espn::http::get_league_roster_data(
-        false,
+    let roster_data = fetch_roster_data_with_message(
         league_id,
         params.base.season,
         Some(params.base.week),
         params.base.refresh,
+        !params.base.as_json,
     )
-    .await
-    {
-        Ok((data, cache_status)) => {
-            if !params.base.as_json {
-                match cache_status {
-                    crate::espn::http::CacheStatus::Hit => {
-                        println!(
-                            "✓ Week {} roster status loaded (from cache)",
-                            params.base.week.as_u16()
-                        );
-                    }
-                    crate::espn::http::CacheStatus::Miss => {
-                        println!(
-                            "✓ Week {} roster status fetched (cache miss)",
-                            params.base.week.as_u16()
-                        );
-                    }
-                    crate::espn::http::CacheStatus::Refreshed => {
-                        println!(
-                            "✓ Week {} roster status fetched (refreshed)",
-                            params.base.week.as_u16()
-                        );
-                    }
-                }
-            }
-            Some(data)
-        }
-        Err(e) => {
-            if !params.base.as_json {
-                println!(
-                    "⚠ Could not fetch week {} roster data: {}",
-                    params.base.week.as_u16(),
-                    e
-                );
-            }
-            None
-        }
-    };
+    .await?;
+
+    // Settings are loaded first so the player request can narrow itself to the slots this
+    // league actually rosters.
+    if !params.base.as_json {
+        println!("Loading league scoring settings...");
+    }
+    let settings = load_or_fetch_league_settings(league_id, false, params.base.season).await?;
+    let scoring_index = build_scoring_index(&settings.scoring_settings.scoring_items);
 
     // Fetch ESPN projections for the target week (get_player_data handles caching internally)
     let players_val = get_player_data(PlayerDataRequest {
@@ -115,6 +88,7 @@ pub async fn handle_projection_analysis(params: ProjectionAnalysisParams) -> Res
         week: params.base.week,
         injury_status_filter: params.base.injury_status.clone(),
         roster_status_filter: params.base.roster_status.clone(),
+        fallback_slot_ids: Some(settings.rosterable_slot_ids()),
     })
     .await?;
 
@@ -122,13 +96,6 @@ pub async fn handle_projection_analysis(params: ProjectionAnalysisParams) -> Res
 
     // Note: No need to update players table since projection analysis works directly
     // with ESPN API data and doesn't rely on the database players table
-
-    // Load league settings to compute ESPN projections
-    if !params.base.as_json {
-        println!("Loading league scoring settings...");
-    }
-    let settings = load_or_fetch_league_settings(league_id, false, params.base.season).await?;
-    let scoring_index = build_scoring_index(&settings.scoring_settings.scoring_items);
 
     if !players.is_empty() && !params.base.as_json {
         println!(
@@ -155,13 +122,9 @@ pub async fn handle_projection_analysis(params: ProjectionAnalysisParams) -> Res
                 params.base.week.as_u16(),
                 1, // stat_source = 1 for projected
             ) {
-                let position_id = if player.default_position_id < 0 {
-                    0u8
-                } else {
-                    player.default_position_id as u8
-                };
+                let slot_id = scoring_slot_id(player.default_position_id as i32);
                 let espn_projection =
-                    compute_points_for_week(weekly_stats, position_id, &scoring_index);
+                    compute_points_for_week(weekly_stats, slot_id, &scoring_index);
 
                 Some((player_id, espn_projection))
             } else {
@@ -227,32 +190,34 @@ pub async fn handle_projection_analysis(params: ProjectionAnalysisParams) -> Res
         }
     }
 
-    // Get league-allowed position IDs for automatic filtering
-    let allowed_position_ids = settings.get_allowed_position_ids();
+    // Positions this league can actually start; anything else is dropped from the analysis.
+    let rosterable_positions = settings.rosterable_positions();
 
     // Apply filters in parallel (position, injury status, roster status, team)
     let filtered_estimates: Vec<_> = estimates
         .into_par_iter()
         .filter(|estimate| {
-            // First, check if this player's position is allowed in the league
-            if let Ok(position_enum) = estimate.position.parse::<crate::Position>() {
-                let position_id = position_enum.to_u8();
-                if !allowed_position_ids.contains(&position_id) {
+            // First, check if this player's position is one the league can start
+            let player_position = estimate.position.parse::<Position>().ok();
+            if let Some(position) = player_position {
+                if !rosterable_positions.contains(&position) {
                     return false; // Exclude non-fantasy positions
                 }
             }
 
             // Apply user-specified position filter
             if let Some(pos_filters) = &params.base.positions {
-                let position_matches = pos_filters.iter().any(|p| {
-                    match p {
-                        // For flexible params.base.positions, check if player position is eligible
-                        Position::FLEX => {
-                            matches!(estimate.position.as_str(), "RB" | "WR" | "TE")
-                        }
-                        // For individual params.base.positions, compare directly
-                        _ => estimate.position == p.to_string(),
-                    }
+                let Some(position) = player_position else {
+                    return false; // Unresolvable position cannot satisfy a position filter
+                };
+
+                let position_matches = pos_filters.iter().any(|filter| match filter {
+                    // Slot-shaped filters match any position eligible for that slot.
+                    Position::FLEX | Position::BE | Position::IR => filter
+                        .lineup_slot_ids()
+                        .iter()
+                        .any(|slot| position.fills_slot(*slot)),
+                    _ => *filter == position,
                 });
                 if !position_matches {
                     return false;

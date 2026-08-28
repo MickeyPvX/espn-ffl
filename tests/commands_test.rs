@@ -118,7 +118,7 @@ fn test_player_points_serialization() {
 
 #[test]
 fn test_player_points_ordering() {
-    let mut players = vec![
+    let mut players = [
         PlayerPoints {
             id: PlayerId::new(1),
             name: "Player 1".to_string(),
@@ -286,18 +286,23 @@ fn test_player_weekly_stats_creation() {
 
 #[test]
 fn test_position_conversion_in_player_data() {
-    // Test that Position::try_from works correctly for common position IDs
-    assert_eq!(Position::try_from(0).unwrap(), Position::QB);
-    assert_eq!(Position::try_from(2).unwrap(), Position::RB);
-    assert_eq!(Position::try_from(3).unwrap(), Position::WR);
-    assert_eq!(Position::try_from(4).unwrap(), Position::TE);
-    assert_eq!(Position::try_from(5).unwrap(), Position::K);
-    assert_eq!(Position::try_from(6).unwrap(), Position::TE);
-    assert_eq!(Position::try_from(17).unwrap(), Position::K);
-    assert_eq!(Position::try_from(16).unwrap(), Position::DEF);
+    // Player objects carry defaultPositionId, so that is the space to decode.
+    assert_eq!(Position::from_default_position_id(1).unwrap(), Position::QB);
+    assert_eq!(Position::from_default_position_id(2).unwrap(), Position::RB);
+    assert_eq!(Position::from_default_position_id(3).unwrap(), Position::WR);
+    assert_eq!(Position::from_default_position_id(4).unwrap(), Position::TE);
+    assert_eq!(Position::from_default_position_id(5).unwrap(), Position::K);
+    assert_eq!(
+        Position::from_default_position_id(16).unwrap(),
+        Position::DEF
+    );
+
+    // 6 and 17 are lineup *slot* ids (TE and K slots), not position ids.
+    assert!(Position::from_default_position_id(6).is_err());
+    assert!(Position::from_default_position_id(17).is_err());
 
     // Test unknown position
-    assert!(Position::try_from(99).is_err());
+    assert!(Position::from_default_position_id(99).is_err());
 }
 
 #[test]
@@ -385,6 +390,9 @@ fn test_cached_vs_fresh_data_status_consistency() {
             active: Some(true),
             injured: Some(false),
             injury_status: Some(InjuryStatus::Active),
+            pro_team_id: None,
+            ownership: None,
+            draft_ranks: None,
         },
         "QB".to_string(),
         25.0,

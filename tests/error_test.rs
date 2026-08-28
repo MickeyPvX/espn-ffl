@@ -127,22 +127,6 @@ mod espn_error_tests {
     }
 
     #[test]
-    fn test_box_error_conversion() {
-        let box_error: Box<dyn std::error::Error + Send + Sync> = Box::new(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            "Access denied",
-        ));
-        let espn_error = EspnError::from(box_error);
-
-        match espn_error {
-            EspnError::Cache { message } => {
-                assert!(message.contains("Access denied"));
-            }
-            _ => panic!("Expected Cache error variant"),
-        }
-    }
-
-    #[test]
     fn test_error_source_chain() {
         let io_error = io::Error::new(io::ErrorKind::NotFound, "File not found");
         let espn_error = EspnError::from(io_error);

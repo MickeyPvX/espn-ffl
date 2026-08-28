@@ -231,6 +231,9 @@ mod types_tests {
             active: None,
             injured: None,
             injury_status: None,
+            pro_team_id: None,
+            ownership: None,
+            draft_ranks: None,
         };
         let player_points = PlayerPoints::from_espn_player(
             PlayerId::new(456789),
@@ -274,7 +277,7 @@ mod types_tests {
         assert_eq!(player_points.position, "QB");
         assert_eq!(player_points.points, 29.5);
         assert_eq!(player_points.week, Week::new(1));
-        assert_eq!(player_points.projected, false);
+        assert!(!player_points.projected);
         assert_eq!(player_points.active, Some(true));
         assert_eq!(player_points.injured, Some(false));
         assert_eq!(player_points.injury_status, Some(InjuryStatus::Active));
@@ -402,6 +405,9 @@ mod types_tests {
     fn test_roundtrip_serialization() {
         // Test that we can serialize and deserialize without data loss
         let original = LeagueSettings {
+            draft_settings: Default::default(),
+            size: None,
+            name: None,
             scoring_settings: ScoringSettings {
                 scoring_items: vec![
                     ScoringItem {
