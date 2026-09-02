@@ -308,6 +308,9 @@ pub async fn handle_draft_board_live(mut params: DraftBoardParams) -> Result<()>
     // A pick sent but not yet confirmed by the feed. HTTP 200 on SELECT only means the
     // command was accepted for delivery; a rejection arrives later as an ERROR frame.
     let mut pending: Option<(PlayerId, String)> = None;
+    // ESPN silently ignores a pick sent off the clock, so the prompt warns rather than
+    // letting the user believe a pick is in flight.
+    let mut on_clock = false;
 
     loop {
         if dirty {
@@ -358,7 +361,8 @@ pub async fn handle_draft_board_live(mut params: DraftBoardParams) -> Result<()>
                         // screen while the user is mid-word, so it is painted in place on
                         // the reserved top line instead, leaving the cursor untouched.
                         if let DraftEvent::Clock { team_id, time, .. } = &event {
-                            if u32::try_from(*team_id) == Ok(my_team_id) {
+                            on_clock = u32::try_from(*team_id) == Ok(my_team_id);
+                            if on_clock {
                                 paint_status_line(&format!(
                                     ">>> ON THE CLOCK — {}s <<<",
                                     (*time).max(0) / 1000
@@ -367,28 +371,50 @@ pub async fn handle_draft_board_live(mut params: DraftBoardParams) -> Result<()>
                             continue;
                         }
 
-                        // A pick landing confirms or invalidates whatever we sent.
+                        // A pick landing confirms or invalidates whatever we sent. The
+                        // verdict is held aside so it can outrank the generic pick line
+                        // that `apply_live_event` produces for the same event.
+                        let mut verdict = None;
                         match &event {
-                            DraftEvent::Selected { player_id, .. }
-                            | DraftEvent::Sold { player_id, .. } => {
-                                if let Some((wanted, name)) = &pending {
-                                    if wanted == player_id {
-                                        message = Some(format!("Pick confirmed: {}", name));
-                                        pending = None;
+                            DraftEvent::Selected {
+                                team_id, player_id, ..
+                            }
+                            | DraftEvent::Sold {
+                                team_id, player_id, ..
+                            } => {
+                                if pending.as_ref().is_some_and(|(id, _)| id == player_id) {
+                                    let (_, name) = pending.take().expect("just matched");
+                                    verdict = Some(format!("Pick confirmed: {}", name));
+                                } else if *team_id == my_team_id {
+                                    // Our slot was filled by someone else — autodraft, or a
+                                    // command ESPN dropped. ESPN sends no error for a pick
+                                    // made off the clock, so this is the only signal that a
+                                    // pending pick will never land.
+                                    if let Some((_, name)) = pending.take() {
+                                        verdict = Some(format!(
+                                            "{} did NOT go through — {} was taken for you instead",
+                                            name,
+                                            pool.player_name(*player_id)
+                                        ));
                                     }
                                 }
                             }
+                            DraftEvent::Selecting { team_id, .. } => {
+                                on_clock = *team_id == my_team_id;
+                            }
                             DraftEvent::Error { message: text } => {
                                 if let Some((_, name)) = pending.take() {
-                                    message =
-                                        Some(format!("Pick FAILED for {}: {}", name, text));
-                                    dirty = true;
+                                    verdict = Some(format!("Pick FAILED for {}: {}", name, text));
                                 }
                             }
                             _ => {}
                         }
 
                         if let Some(note) = apply_live_event(event, &mut picks, my_team_id, &pool) {
+                            message = Some(note);
+                            dirty = true;
+                        }
+                        if let Some(note) = verdict {
                             message = Some(note);
                             dirty = true;
                         }
@@ -424,7 +450,20 @@ pub async fn handle_draft_board_live(mut params: DraftBoardParams) -> Result<()>
                                 Ok(()) => {
                                     let name = pool.player_name(id);
                                     pending = Some((id, name.clone()));
-                                    format!("Sent {} — awaiting confirmation...", name)
+                                    // The schedule knows whose turn it is straight away;
+                                    // the feed flag only becomes meaningful once a clock
+                                    // frame has arrived, and auction drafts have no
+                                    // schedule, so either source is enough.
+                                    if on_clock || my_turn_by_schedule(&draft, &picks, my_team_id)
+                                    {
+                                        format!("Sent {} — awaiting confirmation...", name)
+                                    } else {
+                                        format!(
+                                            "Sent {}, but you are NOT on the clock — \
+                                             ESPN usually ignores this",
+                                            name
+                                        )
+                                    }
                                 }
                                 Err(e) => format!("Pick rejected — {e}"),
                             },
@@ -435,6 +474,21 @@ pub async fn handle_draft_board_live(mut params: DraftBoardParams) -> Result<()>
             }
         }
     }
+}
+
+/// Whether the next unmade slot in the pick schedule belongs to this team.
+///
+/// Snake drafts pre-assign every slot, so this is known the moment a pick lands. Auction
+/// drafts have no order and always answer `false`; there the feed's clock is the only signal.
+fn my_turn_by_schedule(draft: &DraftResponse, picks: &FilePicks, my_team_id: u32) -> bool {
+    let next = picks.len() as u32 + 1;
+    draft
+        .draft_detail
+        .picks
+        .iter()
+        .find(|p| p.overall_pick_number == next)
+        .and_then(|p| p.team_id)
+        == Some(my_team_id)
 }
 
 /// Paint a status line at the top of the screen without disturbing the cursor.
@@ -2209,6 +2263,65 @@ mod tests {
         assert!(mine.contains("YOU ARE ON THE CLOCK"));
         // Milliseconds on the wire; a "60000s" clock would be nonsense.
         assert!(mine.contains("60s"), "got {mine}");
+    }
+
+    #[test]
+    fn the_schedule_says_whose_turn_it_is() {
+        use crate::espn::draft::{DraftDetail, DraftPick, DraftResponse};
+        let pick = |overall: u32, team: Option<u32>| DraftPick {
+            player_id: -1,
+            team_id: team,
+            overall_pick_number: overall,
+            round_id: 1,
+            round_pick_number: overall,
+            lineup_slot_id: None,
+            bid_amount: None,
+            keeper: false,
+            member_id: None,
+        };
+        let draft = DraftResponse {
+            draft_detail: DraftDetail {
+                drafted: false,
+                in_progress: true,
+                picks: vec![pick(1, Some(4)), pick(2, Some(9)), pick(3, Some(4))],
+            },
+            teams: vec![],
+        };
+
+        let mut picks = FilePicks::default();
+        // Nothing drafted: slot 1 belongs to team 4.
+        assert!(my_turn_by_schedule(&draft, &picks, 4));
+        assert!(!my_turn_by_schedule(&draft, &picks, 9));
+
+        picks.picks.push((PlayerId::new(1), false));
+        // One pick in: slot 2 is team 9's.
+        assert!(my_turn_by_schedule(&draft, &picks, 9));
+        assert!(!my_turn_by_schedule(&draft, &picks, 4));
+    }
+
+    #[test]
+    fn an_auction_has_no_schedule_to_read() {
+        use crate::espn::draft::{DraftDetail, DraftPick, DraftResponse};
+        // Auction picks carry no team, so the schedule can never claim it is our turn.
+        let draft = DraftResponse {
+            draft_detail: DraftDetail {
+                drafted: false,
+                in_progress: true,
+                picks: vec![DraftPick {
+                    player_id: -1,
+                    team_id: None,
+                    overall_pick_number: 1,
+                    round_id: 1,
+                    round_pick_number: 1,
+                    lineup_slot_id: None,
+                    bid_amount: None,
+                    keeper: false,
+                    member_id: None,
+                }],
+            },
+            teams: vec![],
+        };
+        assert!(!my_turn_by_schedule(&draft, &FilePicks::default(), 4));
     }
 
     #[test]
