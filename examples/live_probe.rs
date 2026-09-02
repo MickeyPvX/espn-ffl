@@ -2,7 +2,7 @@
 //!
 //! Usage: cargo run --example live_probe -- <league_id> <team_id> [seconds]
 //!
-//! Joining takes over the team's draft session — see `docs/espn-live-draft-protocol.md`.
+//! Joining takes over the team's draft session: ESPN allows one connection per team.
 use espn_ffl::espn::live_draft::{DraftEvent, LiveDraftSession};
 use espn_ffl::{LeagueId, Season};
 

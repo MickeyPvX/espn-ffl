@@ -10,8 +10,8 @@
 //! commands go out as ordinary GET requests. No WebSocket is involved, which is why this
 //! needs no dependency beyond the `reqwest` the crate already uses.
 //!
-//! See `docs/espn-live-draft-protocol.md` for how the protocol was recovered and for the
-//! parts deliberately left unimplemented.
+//! The join snapshot is a nested binary structure; only the team rosters are read from it,
+//! which is all the board needs.
 //!
 //! # One session per team
 //!
@@ -28,8 +28,8 @@ const DRAFT_HOST: &str = "https://fantasydraft.espn.com";
 
 /// ESPN's numeric id for fantasy football on the draft service.
 ///
-/// Not the `ffl` slug the REST API uses. `game-ffl` is rejected with a misleading
-/// "LeagueId was either missing or invalid", which is why this constant is spelled out.
+/// Not the `ffl` slug the REST API uses; the draft service rejects that with an error that
+/// blames the league id, so this is spelled out to stop it being "corrected".
 const FOOTBALL_GAME_ID: &str = "1";
 
 /// Client identifier the web draft room sends.
@@ -397,14 +397,14 @@ const OWNER_RECORD_LEN: usize = 23;
 /// Joining mid-draft would otherwise start from an empty board, and the REST API cannot fill
 /// the gap because it publishes nothing until the draft ends.
 ///
-/// The snapshot is a nested binary format. Rather than walking it from the root — which would
-/// mean implementing a dozen transcoders exactly, where one wrong field width silently
-/// corrupts everything after it — this anchors on the one node that is distinguishable on
-/// sight. Every node begins `1, version, leagueId`, but `DraftTeam` is the only one at
-/// version 2, so that triple is a reliable marker. From each hit the walk is local and
-/// self-checking: owner and roster counts say exactly how many fixed-size records follow, and
-/// every record must carry the same marker and league id, so a false anchor desyncs
-/// immediately and is discarded rather than yielding junk.
+/// The snapshot is a nested binary structure. Rather than walking it from the root, which
+/// would mean tracking a dozen record types exactly and where one wrong field width silently
+/// corrupts everything after it, this anchors on the one record distinguishable on sight:
+/// every record begins `1, version, leagueId`, and the team record is the only one at
+/// version 2. From each hit the walk is local and self-checking — owner and roster counts
+/// say exactly how many fixed-size records follow, and each must repeat the marker and
+/// league id, so a false anchor desyncs immediately and is discarded rather than yielding
+/// junk.
 ///
 /// Empty roster slots are `-1` and are skipped, so the result is the players actually taken.
 pub fn recover_prior_picks(blob: &[u8], league_id: u32) -> Vec<PriorPick> {
