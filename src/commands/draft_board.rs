@@ -305,6 +305,9 @@ pub async fn handle_draft_board_live(mut params: DraftBoardParams) -> Result<()>
     // The snapshot arrives a moment after joining. Until it does the board cannot know what
     // has already been taken, and must not imply otherwise.
     let mut snapshot_seen = false;
+    // A pick sent but not yet confirmed by the feed. HTTP 200 on SELECT only means the
+    // command was accepted for delivery; a rejection arrives later as an ERROR frame.
+    let mut pending: Option<(PlayerId, String)> = None;
 
     loop {
         if dirty {
@@ -351,6 +354,40 @@ pub async fn handle_draft_board_live(mut params: DraftBoardParams) -> Result<()>
                             dirty = true;
                             continue;
                         }
+                        // The clock ticks once a second. Redrawing on it would wipe the
+                        // screen while the user is mid-word, so it is painted in place on
+                        // the reserved top line instead, leaving the cursor untouched.
+                        if let DraftEvent::Clock { team_id, time, .. } = &event {
+                            if u32::try_from(*team_id) == Ok(my_team_id) {
+                                paint_status_line(&format!(
+                                    ">>> ON THE CLOCK — {}s <<<",
+                                    (*time).max(0) / 1000
+                                ));
+                            }
+                            continue;
+                        }
+
+                        // A pick landing confirms or invalidates whatever we sent.
+                        match &event {
+                            DraftEvent::Selected { player_id, .. }
+                            | DraftEvent::Sold { player_id, .. } => {
+                                if let Some((wanted, name)) = &pending {
+                                    if wanted == player_id {
+                                        message = Some(format!("Pick confirmed: {}", name));
+                                        pending = None;
+                                    }
+                                }
+                            }
+                            DraftEvent::Error { message: text } => {
+                                if let Some((_, name)) = pending.take() {
+                                    message =
+                                        Some(format!("Pick FAILED for {}: {}", name, text));
+                                    dirty = true;
+                                }
+                            }
+                            _ => {}
+                        }
+
                         if let Some(note) = apply_live_event(event, &mut picks, my_team_id, &pool) {
                             message = Some(note);
                             dirty = true;
@@ -384,7 +421,11 @@ pub async fn handle_draft_board_live(mut params: DraftBoardParams) -> Result<()>
                             // The feed is the source of truth: the pick is not recorded
                             // here, it is recorded when SELECTED comes back for it.
                             Ok(id) => match session.select(id).await {
-                                Ok(()) => format!("Sent pick: {}", pool.player_name(id)),
+                                Ok(()) => {
+                                    let name = pool.player_name(id);
+                                    pending = Some((id, name.clone()));
+                                    format!("Sent {} — awaiting confirmation...", name)
+                                }
                                 Err(e) => format!("Pick rejected — {e}"),
                             },
                             Err(problem) => format!("Not sent — {}", problem),
@@ -394,6 +435,18 @@ pub async fn handle_draft_board_live(mut params: DraftBoardParams) -> Result<()>
             }
         }
     }
+}
+
+/// Paint a status line at the top of the screen without disturbing the cursor.
+///
+/// The board reserves its first line for this. Saving and restoring the cursor means a
+/// countdown can tick once a second while the user is part-way through typing a pick, which
+/// a full redraw would erase.
+fn paint_status_line(text: &str) {
+    use std::io::Write;
+    // Save cursor, jump to row 1, clear it, write, restore cursor.
+    print!("\x1b[s\x1b[1;1H\x1b[K{}\x1b[u", text);
+    let _ = std::io::stdout().flush();
 }
 
 /// Fold one feed event into the pick list, returning a line to show when it changed.
@@ -429,12 +482,13 @@ fn apply_live_event(
             .picks
             .pop()
             .map(|(id, _)| format!("Undone: {} is back on the board", pool.player_name(id))),
-        // ESPN sends the pick clock in milliseconds.
-        DraftEvent::Selecting { team_id, millis } => Some(if team_id == my_team_id {
-            format!(">>> YOU ARE ON THE CLOCK — {}s <<<", millis.max(0) / 1000)
-        } else {
-            format!("Team {} on the clock", team_id)
-        }),
+        // Only our own turn is worth a redraw. Announcing every other team's turn would
+        // clear the screen twice per pick, wiping whatever the user was typing — and the
+        // board header already says who is up. ESPN sends the clock in milliseconds.
+        DraftEvent::Selecting { team_id, millis } if team_id == my_team_id => Some(format!(
+            ">>> YOU ARE ON THE CLOCK — {}s <<<",
+            millis.max(0) / 1000
+        )),
         // Being displaced means another client took the session; reconnecting would start a
         // fight between the two, so say so and stop.
         DraftEvent::Left { team_id, reason }
@@ -2151,7 +2205,28 @@ mod tests {
             9,
             &pool,
         );
-        assert!(mine.unwrap().contains("YOU ARE ON THE CLOCK"));
+        let mine = mine.unwrap();
+        assert!(mine.contains("YOU ARE ON THE CLOCK"));
+        // Milliseconds on the wire; a "60000s" clock would be nonsense.
+        assert!(mine.contains("60s"), "got {mine}");
+    }
+
+    #[test]
+    fn another_teams_turn_does_not_disturb_the_board() {
+        // Every redraw clears the screen, so announcing all eight teams' turns would wipe
+        // whatever the user is typing twice per pick. The header already names who is up.
+        let pool = pool_for_events();
+        let mut picks = FilePicks::default();
+        assert!(apply_live_event(
+            DraftEvent::Selecting {
+                team_id: 4,
+                millis: 60_000
+            },
+            &mut picks,
+            9,
+            &pool
+        )
+        .is_none());
     }
 
     #[test]

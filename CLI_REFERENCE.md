@@ -108,8 +108,15 @@ espn-ffl draft-board --live-draft
 LIVE · connected as Your Team · picks arrive automatically
 `draft <name>` to pick · `list` · `quit`
 draft> draft gibbs
-Sent pick: Jahmyr Gibbs
+Sent Jahmyr Gibbs — awaiting confirmation...
+Pick confirmed: Jahmyr Gibbs
 ```
+
+When it is your turn a countdown ticks in place at the top of the screen, so you can type a
+pick without the board wiping what you have typed. **Nothing picks for you** — the tool never
+autodrafts, and ESPN's clock keeps running, so an expired clock means ESPN autodrafts on your
+behalf. A sent pick is reported as awaiting confirmation until the feed echoes it back;
+rejections arrive out of band and are surfaced against the pick they belong to.
 
 **This takes over your draft session.** ESPN allows one draft connection per team, so
 starting this evicts your browser draft room. Nothing but autodraft will pick for you, so
