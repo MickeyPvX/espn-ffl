@@ -21,7 +21,9 @@ use crate::{
         },
         draft::{get_draft_detail, DraftResponse},
         http::get_draft_pool,
-        live_draft::{DraftEvent, LiveDraftSession, LEFT_REASON_DISPLACED},
+        live_draft::{
+            recover_prior_picks, DraftEvent, LiveDraftSession, PriorPick, LEFT_REASON_DISPLACED,
+        },
         types::LeagueSettings,
         vor::{compute_replacement_levels, Projected, ReplacementLevels},
     },
@@ -332,6 +334,14 @@ pub async fn handle_draft_board_live(mut params: DraftBoardParams) -> Result<()>
                         return Ok(());
                     }
                     Some(event) => {
+                        // The snapshot arrives once, on join, before any live pick.
+                        if let DraftEvent::Init { blob } = &event {
+                            message = Some(seed_from_snapshot(
+                                blob, &mut picks, pool.league_id, my_team_id, &pool,
+                            ));
+                            dirty = true;
+                            continue;
+                        }
                         if let Some(note) = apply_live_event(event, &mut picks, my_team_id, &pool) {
                             message = Some(note);
                             dirty = true;
@@ -425,6 +435,68 @@ fn apply_live_event(
         DraftEvent::Error { message } => Some(format!("Feed error: {}", message)),
         _ => None,
     }
+}
+
+/// Seed the board from the snapshot ESPN sends on join.
+///
+/// Without this, joining a draft already underway starts from an empty board and every
+/// player taken before we connected stays on it. The REST API cannot fill the gap: it
+/// publishes nothing until the draft ends.
+///
+/// Recovery is best-effort. A snapshot ESPN has changed shape on would yield nothing, which
+/// must be reported rather than passed off as an empty draft — a board that silently claims
+/// every player is available is worse than one that admits it does not know.
+fn seed_from_snapshot(
+    blob: &str,
+    picks: &mut FilePicks,
+    league_id: LeagueId,
+    my_team_id: u32,
+    pool: &ScoredPool,
+) -> String {
+    use base64::Engine;
+
+    let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(blob) else {
+        return "!! Could not read the draft snapshot; picks made before now are missing."
+            .to_string();
+    };
+
+    let prior = recover_prior_picks(&bytes, league_id.as_u32());
+    if prior.is_empty() {
+        return "No prior picks found in the snapshot — treating this as the start of the draft."
+            .to_string();
+    }
+
+    // Keep ESPN's roster order; it is the order the picks were made in.
+    for pick in &prior {
+        if picks.all().any(|taken| taken == pick.player_id) {
+            continue;
+        }
+        picks
+            .picks
+            .push((pick.player_id, pick.team_id == my_team_id));
+    }
+
+    let mine = prior.iter().filter(|p| p.team_id == my_team_id).count();
+    format!(
+        "Recovered {} picks already made ({} yours){}",
+        prior.len(),
+        mine,
+        if mine > 0 {
+            format!(": {}", describe_roster(&prior, my_team_id, pool))
+        } else {
+            String::new()
+        }
+    )
+}
+
+/// Names of the viewing team's recovered players, for confirming the snapshot read correctly.
+fn describe_roster(prior: &[PriorPick], my_team_id: u32, pool: &ScoredPool) -> String {
+    prior
+        .iter()
+        .filter(|p| p.team_id == my_team_id)
+        .map(|p| pool.player_name(p.player_id))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// Run the board as an interactive tracker, taking picks typed at a prompt.

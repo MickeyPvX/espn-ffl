@@ -271,6 +271,7 @@ dependencies = [
 name = "espn-ffl"
 version = "2.3.0"
 dependencies = [
+ "base64",
  "clap",
  "dirs",
  "lru",

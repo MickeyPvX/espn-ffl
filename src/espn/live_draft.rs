@@ -89,7 +89,11 @@ pub enum DraftEvent {
     Error {
         message: String,
     },
-    /// Anything not modelled: chat, bids, nominations, state, pings, init blobs.
+    /// The state snapshot sent on join, as base64. See [`recover_prior_picks`].
+    Init {
+        blob: String,
+    },
+    /// Anything not modelled: chat, bids, nominations, state, pings.
     Other {
         verb: String,
         raw: String,
@@ -135,6 +139,9 @@ pub fn parse_event(message: &str) -> Option<DraftEvent> {
         "LEFT" => DraftEvent::Left {
             team_id: team(0)?,
             reason: num(2).unwrap_or(-1),
+        },
+        "INIT" => DraftEvent::Init {
+            blob: rest.first().map(|s| (*s).to_string()).unwrap_or_default(),
         },
         // ESPN URL-encodes free text and uses `+` for spaces.
         "ERROR" => DraftEvent::Error {
@@ -368,9 +375,252 @@ impl DraftStream {
     }
 }
 
+/// One roster slot recovered from the join snapshot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PriorPick {
+    pub team_id: u32,
+    pub slot_id: u32,
+    pub player_id: PlayerId,
+}
+
+/// ESPN's empty-roster-slot sentinel, `-1` read as unsigned.
+const EMPTY_SLOT: u32 = u32::MAX;
+
+/// Size of an encoded `DraftOwner`: five ints and three booleans.
+const OWNER_RECORD_LEN: usize = 23;
+
+/// Recover the picks already made from the `INIT` snapshot.
+///
+/// Joining mid-draft would otherwise start from an empty board, and the REST API cannot fill
+/// the gap because it publishes nothing until the draft ends.
+///
+/// The snapshot is a nested binary format. Rather than walking it from the root — which would
+/// mean implementing a dozen transcoders exactly, where one wrong field width silently
+/// corrupts everything after it — this anchors on the one node that is distinguishable on
+/// sight. Every node begins `1, version, leagueId`, but `DraftTeam` is the only one at
+/// version 2, so that triple is a reliable marker. From each hit the walk is local and
+/// self-checking: owner and roster counts say exactly how many fixed-size records follow, and
+/// every record must carry the same marker and league id, so a false anchor desyncs
+/// immediately and is discarded rather than yielding junk.
+///
+/// Empty roster slots are `-1` and are skipped, so the result is the players actually taken.
+pub fn recover_prior_picks(blob: &[u8], league_id: u32) -> Vec<PriorPick> {
+    let read_u32 = |at: usize| -> Option<u32> {
+        blob.get(at..at + 4)
+            .map(|b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]))
+    };
+    // `1, 2, leagueId`: the DraftTeam marker.
+    let mut anchor = Vec::with_capacity(12);
+    anchor.extend_from_slice(&1u32.to_be_bytes());
+    anchor.extend_from_slice(&2u32.to_be_bytes());
+    anchor.extend_from_slice(&league_id.to_be_bytes());
+
+    // A record belonging to this league, at version 1.
+    let valid_record = |at: usize| -> bool {
+        read_u32(at) == Some(1)
+            && read_u32(at + 4) == Some(1)
+            && read_u32(at + 8) == Some(league_id)
+    };
+
+    let mut picks = Vec::new();
+    for start in 0..blob.len().saturating_sub(anchor.len()) {
+        if &blob[start..start + anchor.len()] != anchor.as_slice() {
+            continue;
+        }
+
+        // teamId, then draftPosition / autodraftTypeId / amountLeft, then the owner count.
+        let mut at = start + 12;
+        let Some(team_id) = read_u32(at) else {
+            continue;
+        };
+        at += 16;
+        let Some(owner_count) = read_u32(at) else {
+            continue;
+        };
+        at += 4;
+
+        // Owners are fixed-size; walking them is what proves the anchor was real.
+        let mut sane = true;
+        for _ in 0..owner_count {
+            if !valid_record(at) {
+                sane = false;
+                break;
+            }
+            at += OWNER_RECORD_LEN;
+        }
+        if !sane {
+            continue;
+        }
+
+        let Some(roster_count) = read_u32(at) else {
+            continue;
+        };
+        at += 4;
+
+        let mut recovered = Vec::new();
+        for _ in 0..roster_count {
+            // A `DraftRosterItem`: marker, version, leagueId, teamId, slotId, playerId, keeper.
+            if !valid_record(at) || read_u32(at + 12) != Some(team_id) {
+                sane = false;
+                break;
+            }
+            let (Some(slot_id), Some(player_id)) = (read_u32(at + 16), read_u32(at + 20)) else {
+                sane = false;
+                break;
+            };
+            if player_id != EMPTY_SLOT {
+                recovered.push(PriorPick {
+                    team_id,
+                    slot_id,
+                    player_id: PlayerId::new(i64::from(player_id)),
+                });
+            }
+            at += 25;
+        }
+
+        // Half a team is worse than none: a desync means the offsets were wrong throughout.
+        if sane {
+            picks.append(&mut recovered);
+        }
+    }
+    picks
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Build a `DraftTeam` record: header, owners, then roster slots.
+    ///
+    /// Mirrors ESPN's encoding so the recovery walk is tested against the real layout
+    /// without committing a captured snapshot, which carries live league and owner ids.
+    fn draft_team(league: u32, team: u32, owners: u32, slots: &[u32]) -> Vec<u8> {
+        let mut out = Vec::new();
+        let mut int = |v: u32, out: &mut Vec<u8>| out.extend_from_slice(&v.to_be_bytes());
+        int(1, &mut out); // marker
+        int(2, &mut out); // DraftTeam is version 2
+        int(league, &mut out);
+        int(team, &mut out);
+        int(0, &mut out); // draftPosition
+        int(0, &mut out); // autodraftTypeId
+        int(100, &mut out); // amountLeft
+        int(owners, &mut out);
+        for _ in 0..owners {
+            int(1, &mut out);
+            int(1, &mut out);
+            int(league, &mut out);
+            int(team, &mut out);
+            int(7, &mut out); // userProfileId
+            out.extend_from_slice(&[0, 1, 0]); // isLM, isOnline, isCensorEnabled
+        }
+        int(slots.len() as u32, &mut out);
+        for (i, player) in slots.iter().enumerate() {
+            int(1, &mut out);
+            int(1, &mut out);
+            int(league, &mut out);
+            int(team, &mut out);
+            int(i as u32, &mut out); // slotId
+            int(*player, &mut out);
+            out.push(0); // isKeeper
+        }
+        out
+    }
+
+    #[test]
+    fn recovers_picks_and_skips_empty_slots() {
+        const LEAGUE: u32 = 4242;
+        let mut blob = vec![0u8; 8]; // leading noise
+        blob.extend(draft_team(LEAGUE, 3, 1, &[900, u32::MAX, 901]));
+        blob.extend(draft_team(LEAGUE, 4, 1, &[u32::MAX, 902]));
+
+        let picks = recover_prior_picks(&blob, LEAGUE);
+        assert_eq!(
+            picks,
+            vec![
+                PriorPick {
+                    team_id: 3,
+                    slot_id: 0,
+                    player_id: PlayerId::new(900)
+                },
+                PriorPick {
+                    team_id: 3,
+                    slot_id: 2,
+                    player_id: PlayerId::new(901)
+                },
+                PriorPick {
+                    team_id: 4,
+                    slot_id: 1,
+                    player_id: PlayerId::new(902)
+                },
+            ],
+            "empty slots (-1) are not picks"
+        );
+    }
+
+    #[test]
+    fn a_team_with_nothing_drafted_yields_nothing() {
+        const LEAGUE: u32 = 7;
+        let blob = draft_team(LEAGUE, 1, 1, &[u32::MAX; 16]);
+        assert!(recover_prior_picks(&blob, LEAGUE).is_empty());
+    }
+
+    #[test]
+    fn multiple_owners_are_walked_before_the_roster() {
+        // A co-managed team pushes the roster further along; miscounting owners would
+        // desync the walk and silently drop the picks.
+        const LEAGUE: u32 = 11;
+        let blob = draft_team(LEAGUE, 2, 3, &[555]);
+        assert_eq!(
+            recover_prior_picks(&blob, LEAGUE),
+            vec![PriorPick {
+                team_id: 2,
+                slot_id: 0,
+                player_id: PlayerId::new(555)
+            }]
+        );
+    }
+
+    #[test]
+    fn another_leagues_records_are_ignored() {
+        let blob = draft_team(999, 1, 1, &[900]);
+        assert!(recover_prior_picks(&blob, 4242).is_empty());
+    }
+
+    #[test]
+    fn a_false_anchor_is_discarded_rather_than_yielding_junk() {
+        const LEAGUE: u32 = 4242;
+        // The anchor triple appearing in unrelated bytes: the owner walk must fail and the
+        // whole candidate be dropped, not produce invented picks.
+        let mut blob = Vec::new();
+        blob.extend_from_slice(&1u32.to_be_bytes());
+        blob.extend_from_slice(&2u32.to_be_bytes());
+        blob.extend_from_slice(&LEAGUE.to_be_bytes());
+        blob.extend_from_slice(&[0xAB; 64]);
+        assert!(recover_prior_picks(&blob, LEAGUE).is_empty());
+
+        // A real team after the false anchor is still recovered.
+        blob.extend(draft_team(LEAGUE, 5, 1, &[777]));
+        assert_eq!(recover_prior_picks(&blob, LEAGUE).len(), 1);
+    }
+
+    #[test]
+    fn a_truncated_roster_drops_the_whole_team() {
+        const LEAGUE: u32 = 4242;
+        let mut blob = draft_team(LEAGUE, 3, 1, &[900, 901]);
+        blob.truncate(blob.len() - 10); // cut the last record in half
+        assert!(
+            recover_prior_picks(&blob, LEAGUE).is_empty(),
+            "a partial team is worse than none: the offsets were wrong throughout"
+        );
+    }
+
+    #[test]
+    fn init_payload_is_exposed_for_recovery() {
+        match parse_event("INIT AAAAAQ==") {
+            Some(DraftEvent::Init { blob }) => assert_eq!(blob, "AAAAAQ=="),
+            other => panic!("expected Init, got {:?}", other),
+        }
+    }
 
     #[test]
     fn swid_keeps_braces_and_drops_the_trailing_separator() {
