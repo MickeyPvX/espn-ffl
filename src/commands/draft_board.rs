@@ -302,14 +302,22 @@ pub async fn handle_draft_board_live(mut params: DraftBoardParams) -> Result<()>
 
     let mut message: Option<String> = None;
     let mut dirty = true;
+    // The snapshot arrives a moment after joining. Until it does the board cannot know what
+    // has already been taken, and must not imply otherwise.
+    let mut snapshot_seen = false;
 
     loop {
         if dirty {
             print!("\x1b[2J\x1b[H");
             print_board(&pool.render(&params, Some(&draft), Some(&picks)), top);
             println!(
-                "\nLIVE · connected as {} · picks arrive automatically",
-                my_team.display_name()
+                "\nLIVE · connected as {} · {}",
+                my_team.display_name(),
+                if snapshot_seen {
+                    "picks arrive automatically"
+                } else {
+                    "awaiting state snapshot, board may be incomplete"
+                }
             );
             if let Some(note) = message.take() {
                 println!("{}", note);
@@ -339,6 +347,7 @@ pub async fn handle_draft_board_live(mut params: DraftBoardParams) -> Result<()>
                             message = Some(seed_from_snapshot(
                                 blob, &mut picks, pool.league_id, my_team_id, &pool,
                             ));
+                            snapshot_seen = true;
                             dirty = true;
                             continue;
                         }
@@ -420,8 +429,9 @@ fn apply_live_event(
             .picks
             .pop()
             .map(|(id, _)| format!("Undone: {} is back on the board", pool.player_name(id))),
-        DraftEvent::Selecting { team_id, seconds } => Some(if team_id == my_team_id {
-            format!(">>> YOU ARE ON THE CLOCK — {}s <<<", seconds.max(0))
+        // ESPN sends the pick clock in milliseconds.
+        DraftEvent::Selecting { team_id, millis } => Some(if team_id == my_team_id {
+            format!(">>> YOU ARE ON THE CLOCK — {}s <<<", millis.max(0) / 1000)
         } else {
             format!("Team {} on the clock", team_id)
         }),
@@ -2135,7 +2145,7 @@ mod tests {
         let mine = apply_live_event(
             DraftEvent::Selecting {
                 team_id: 9,
-                seconds: 60,
+                millis: 60_000,
             },
             &mut picks,
             9,

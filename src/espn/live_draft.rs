@@ -52,10 +52,10 @@ pub enum DraftEvent {
         player_id: PlayerId,
         slot_id: i64,
     },
-    /// A team is on the clock.
+    /// A team is on the clock, with the remaining pick clock in milliseconds.
     Selecting {
         team_id: u32,
-        seconds: i64,
+        millis: i64,
     },
     /// A player was won at auction.
     Sold {
@@ -117,7 +117,7 @@ pub fn parse_event(message: &str) -> Option<DraftEvent> {
         },
         "SELECTING" => DraftEvent::Selecting {
             team_id: team(0)?,
-            seconds: num(1).unwrap_or(-1),
+            millis: num(1).unwrap_or(-1),
         },
         "SOLD" => DraftEvent::Sold {
             team_id: team(0)?,
@@ -383,8 +383,11 @@ pub struct PriorPick {
     pub player_id: PlayerId,
 }
 
-/// ESPN's empty-roster-slot sentinel, `-1` read as unsigned.
-const EMPTY_SLOT: u32 = u32::MAX;
+/// ESPN's empty-roster-slot sentinel.
+///
+/// Only `-1` means empty. Other negative ids are real: ESPN numbers team defences below
+/// zero, so treating every negative value as empty would silently drop every D/ST.
+const EMPTY_SLOT: i32 = -1;
 
 /// Size of an encoded `DraftOwner`: five ints and three booleans.
 const OWNER_RECORD_LEN: usize = 23;
@@ -468,6 +471,8 @@ pub fn recover_prior_picks(blob: &[u8], league_id: u32) -> Vec<PriorPick> {
                 sane = false;
                 break;
             };
+            // Player ids are signed on the wire; defences are negative.
+            let player_id = player_id as i32;
             if player_id != EMPTY_SLOT {
                 recovered.push(PriorPick {
                     team_id,
@@ -494,7 +499,7 @@ mod tests {
     ///
     /// Mirrors ESPN's encoding so the recovery walk is tested against the real layout
     /// without committing a captured snapshot, which carries live league and owner ids.
-    fn draft_team(league: u32, team: u32, owners: u32, slots: &[u32]) -> Vec<u8> {
+    fn draft_team(league: u32, team: u32, owners: u32, slots: &[i32]) -> Vec<u8> {
         let mut out = Vec::new();
         let int = |v: u32, out: &mut Vec<u8>| out.extend_from_slice(&v.to_be_bytes());
         int(1, &mut out); // marker
@@ -520,7 +525,7 @@ mod tests {
             int(league, &mut out);
             int(team, &mut out);
             int(i as u32, &mut out); // slotId
-            int(*player, &mut out);
+            int(*player as u32, &mut out);
             out.push(0); // isKeeper
         }
         out
@@ -530,8 +535,8 @@ mod tests {
     fn recovers_picks_and_skips_empty_slots() {
         const LEAGUE: u32 = 4242;
         let mut blob = vec![0u8; 8]; // leading noise
-        blob.extend(draft_team(LEAGUE, 3, 1, &[900, u32::MAX, 901]));
-        blob.extend(draft_team(LEAGUE, 4, 1, &[u32::MAX, 902]));
+        blob.extend(draft_team(LEAGUE, 3, 1, &[900, -1, 901]));
+        blob.extend(draft_team(LEAGUE, 4, 1, &[-1, 902]));
 
         let picks = recover_prior_picks(&blob, LEAGUE);
         assert_eq!(
@@ -558,9 +563,31 @@ mod tests {
     }
 
     #[test]
+    fn team_defences_survive_recovery() {
+        // ESPN numbers D/ST below zero; only -1 marks an empty slot.
+        const LEAGUE: u32 = 4242;
+        let blob = draft_team(LEAGUE, 6, 1, &[-16033, -1, 4242]);
+        assert_eq!(
+            recover_prior_picks(&blob, LEAGUE),
+            vec![
+                PriorPick {
+                    team_id: 6,
+                    slot_id: 0,
+                    player_id: PlayerId::new(-16033)
+                },
+                PriorPick {
+                    team_id: 6,
+                    slot_id: 2,
+                    player_id: PlayerId::new(4242)
+                },
+            ]
+        );
+    }
+
+    #[test]
     fn a_team_with_nothing_drafted_yields_nothing() {
         const LEAGUE: u32 = 7;
-        let blob = draft_team(LEAGUE, 1, 1, &[u32::MAX; 16]);
+        let blob = draft_team(LEAGUE, 1, 1, &[-1; 16]);
         assert!(recover_prior_picks(&blob, LEAGUE).is_empty());
     }
 
@@ -649,10 +676,11 @@ mod tests {
     #[test]
     fn parses_the_clock_and_who_is_up() {
         assert_eq!(
-            parse_event("SELECTING 3 90"),
+            parse_event("SELECTING 3 90000"),
             Some(DraftEvent::Selecting {
                 team_id: 3,
-                seconds: 90
+                // Milliseconds on the wire, not seconds.
+                millis: 90_000
             })
         );
         assert_eq!(
