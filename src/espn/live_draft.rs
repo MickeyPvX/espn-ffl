@@ -496,7 +496,7 @@ mod tests {
     /// without committing a captured snapshot, which carries live league and owner ids.
     fn draft_team(league: u32, team: u32, owners: u32, slots: &[u32]) -> Vec<u8> {
         let mut out = Vec::new();
-        let mut int = |v: u32, out: &mut Vec<u8>| out.extend_from_slice(&v.to_be_bytes());
+        let int = |v: u32, out: &mut Vec<u8>| out.extend_from_slice(&v.to_be_bytes());
         int(1, &mut out); // marker
         int(2, &mut out); // DraftTeam is version 2
         int(league, &mut out);
