@@ -18,8 +18,12 @@ pub struct DraftPick {
     /// Player taken, or [`UNDRAFTED_PLAYER_ID`] if the slot is still open.
     #[serde(rename = "playerId")]
     pub player_id: i64,
-    #[serde(rename = "teamId")]
-    pub team_id: u32,
+    /// Team the pick belongs to, or `None` when ESPN has not assigned one.
+    ///
+    /// Snake drafts pre-assign every slot, but auction drafts have no pick order, so every
+    /// unmade pick arrives as `-1` until it is won.
+    #[serde(rename = "teamId", deserialize_with = "team_id_or_none", default)]
+    pub team_id: Option<u32>,
     #[serde(rename = "overallPickNumber")]
     pub overall_pick_number: u32,
     #[serde(rename = "roundId")]
@@ -35,6 +39,15 @@ pub struct DraftPick {
     /// Owner who made the pick; matches a team's `owners` entry.
     #[serde(rename = "memberId", default)]
     pub member_id: Option<String>,
+}
+
+/// Read a team id, treating ESPN's `-1` sentinel as "not assigned".
+fn team_id_or_none<'de, D>(deserializer: D) -> std::result::Result<Option<u32>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw = i64::deserialize(deserializer)?;
+    Ok(u32::try_from(raw).ok())
 }
 
 impl DraftPick {
@@ -80,7 +93,7 @@ impl DraftDetail {
     pub fn picks_for_team(&self, team_id: u32) -> Vec<&DraftPick> {
         self.completed_picks()
             .into_iter()
-            .filter(|p| p.team_id == team_id)
+            .filter(|p| p.team_id == Some(team_id))
             .collect()
     }
 
@@ -89,6 +102,17 @@ impl DraftDetail {
         self.picks
             .iter()
             .filter(|p| !p.is_made())
+            .min_by_key(|p| p.overall_pick_number)
+    }
+
+    /// The team's next pick that has not been made yet.
+    ///
+    /// Every pick slot is pre-allocated before the draft starts, so this answers "when do I
+    /// pick again" without reconstructing the snake order.
+    pub fn next_pick_for_team(&self, team_id: u32) -> Option<&DraftPick> {
+        self.picks
+            .iter()
+            .filter(|p| !p.is_made() && p.team_id == Some(team_id))
             .min_by_key(|p| p.overall_pick_number)
     }
 
@@ -165,7 +189,7 @@ mod tests {
     fn pick(overall: u32, round: u32, team: u32, player: i64) -> DraftPick {
         DraftPick {
             player_id: player,
-            team_id: team,
+            team_id: Some(team),
             overall_pick_number: overall,
             round_id: round,
             round_pick_number: overall,
@@ -187,6 +211,35 @@ mod tests {
                 pick(4, 1, 8, UNDRAFTED_PLAYER_ID),
             ],
         }
+    }
+
+    #[test]
+    fn next_pick_for_team_finds_the_earliest_unmade_slot() {
+        let mut detail = detail();
+        // Team 7 snakes back around in round 2, out of source order.
+        detail.picks.push(pick(9, 2, 7, UNDRAFTED_PLAYER_ID));
+
+        let next = detail.next_pick_for_team(7).expect("team 7 picks again");
+        assert_eq!(next.overall_pick_number, 3);
+        assert_eq!(next.round_id, 1);
+    }
+
+    #[test]
+    fn next_pick_for_team_skips_picks_already_made() {
+        let mut detail = detail();
+        detail.picks.push(pick(11, 2, 5, UNDRAFTED_PLAYER_ID));
+
+        // Team 5 already used pick 1, so its next is in round 2.
+        let next = detail.next_pick_for_team(5).expect("team 5 picks again");
+        assert_eq!(next.overall_pick_number, 11);
+    }
+
+    #[test]
+    fn next_pick_for_team_is_none_when_the_team_is_done() {
+        // Team 6's only pick has been made.
+        assert!(detail().next_pick_for_team(6).is_none());
+        // A team with no picks at all.
+        assert!(detail().next_pick_for_team(99).is_none());
     }
 
     #[test]

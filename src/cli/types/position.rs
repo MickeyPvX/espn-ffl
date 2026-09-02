@@ -64,6 +64,14 @@ pub enum Position {
 }
 
 /// Lineup slot id for the bench, which every player is eligible for.
+const SLOT_RB_WR: u8 = 3;
+/// Lineup slot accepting a WR or a TE.
+const SLOT_WR_TE: u8 = 5;
+/// Offensive-player (superflex) slot, accepting any offensive skill position.
+const SLOT_OP: u8 = 7;
+/// Flex slot, accepting an RB, WR, or TE.
+const SLOT_FLEX: u8 = 23;
+/// Bench slot, accepting anyone.
 const SLOT_BENCH: u8 = 20;
 /// Lineup slot id for injured reserve, which every player is eligible for.
 const SLOT_IR: u8 = 21;
@@ -147,11 +155,16 @@ impl Position {
 
     /// Whether this position can fill the given lineup slot.
     ///
-    /// FLEX accepts RB/WR/TE; bench and IR accept anyone.
+    /// Multi-position slots are spelled out because they share no slot id with the positions
+    /// that fill them: FLEX accepts RB/WR/TE, the superflex slot accepts any offensive skill
+    /// position, and bench and IR accept anyone.
     pub fn fills_slot(&self, slot: u8) -> bool {
         match slot {
             SLOT_BENCH | SLOT_IR => true,
-            23 => matches!(self, Position::RB | Position::WR | Position::TE),
+            SLOT_FLEX => matches!(self, Position::RB | Position::WR | Position::TE),
+            SLOT_RB_WR => matches!(self, Position::RB | Position::WR),
+            SLOT_WR_TE => matches!(self, Position::WR | Position::TE),
+            SLOT_OP => self.is_offensive_skill(),
             _ => self.lineup_slot_ids().contains(&slot),
         }
     }
@@ -299,6 +312,21 @@ mod tests {
         assert!(!Position::RB.fills_slot(0));
 
         // Everyone can sit on the bench or land on IR.
+        // Multi-position slots share no slot id with the positions that fill them.
+        assert!(Position::RB.fills_slot(SLOT_RB_WR));
+        assert!(Position::WR.fills_slot(SLOT_RB_WR));
+        assert!(!Position::TE.fills_slot(SLOT_RB_WR));
+
+        assert!(Position::WR.fills_slot(SLOT_WR_TE));
+        assert!(Position::TE.fills_slot(SLOT_WR_TE));
+        assert!(!Position::RB.fills_slot(SLOT_WR_TE));
+
+        // Superflex takes any offensive skill position, but not a kicker or defense.
+        assert!(Position::QB.fills_slot(SLOT_OP));
+        assert!(Position::RB.fills_slot(SLOT_OP));
+        assert!(!Position::K.fills_slot(SLOT_OP));
+        assert!(!Position::DEF.fills_slot(SLOT_OP));
+
         assert!(Position::K.fills_slot(SLOT_BENCH));
         assert!(Position::DEF.fills_slot(SLOT_IR));
     }

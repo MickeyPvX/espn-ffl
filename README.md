@@ -72,8 +72,13 @@ The season defaults to whichever NFL season is currently in progress, so `--seas
 # Build a draft board for your league
 espn-ffl draft-board
 
-# Follow your draft live, refreshing every 30 seconds
-espn-ffl draft-board --watch 30
+# Follow your draft live and pick from the terminal. Leads with the three best
+# available players at slots you still have to fill. NOTE: this takes over your
+# draft session — it evicts the browser draft room, so pick from here.
+espn-ffl draft-board --live-draft
+
+# Track picks by typing them yourself, keeping the browser draft room.
+espn-ffl draft-board --interactive
 
 # Get all players for week 3
 espn-ffl player-data --week 3

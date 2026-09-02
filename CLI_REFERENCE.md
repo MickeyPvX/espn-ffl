@@ -25,6 +25,9 @@ ESPN's average draft position.
 - `--refresh` - Refetch projections and ADP instead of using the cached pool (cached for 6 hours)
 
 **Live Draft Options:**
+- `--live-draft` - Follow ESPN's live draft feed and draft from this tool (see below)
+- `-i, --interactive` - Type each pick at a prompt; the board redraws immediately
+- `--taken-file <PATH>` - Track picks from a file; re-read on every refresh
 - `--live` - Read live draft state: hide drafted players, show your remaining needs
 - `--watch <SECONDS>` - Re-read the draft on an interval until it completes (implies `--live`)
 - `--team <NAME>` - Your fantasy team (partial match). Defaults to the team owned by `ESPN_SWID`
@@ -41,11 +44,44 @@ ESPN's average draft position.
 - `Δ` - ADP minus value rank; positive means the player usually falls past his value
 - `Bye` - inferred from the gap in ESPN's weekly projections
 
+**Best available (live drafts):**
+
+With `--live` or `--watch` and an identified team, the board leads with the three most
+valuable players who fill a starting slot you have not yet filled. Your roster and remaining
+slots are recomputed from the positions you have drafted, not from ESPN's `lineupSlotId`,
+and dedicated slots are filled before flex ones so a flex-eligible pick does not mask a real
+need. Once every starter is accounted for, the suggestions fall back to best available
+overall and are marked `[BE]`.
+
+Each suggestion is annotated with whether it will survive until your next pick, based on ADP
+against your next overall pick number:
+- `take now` - usually drafted more than a quarter round before you pick again
+- `coin flip` - from a quarter round before your next pick to half a round after it
+- `can wait` - usually still on the board more than half a round past your next pick
+- `unknown` - no published ADP, or no remaining pick to measure against
+
+The band is asymmetric on purpose. A player whose ADP lands after your next pick may still
+slide far enough to reach you, but one whose ADP lands before it rarely comes back, since
+every team in between has to pass on him. Being wrong early costs more than being wrong late.
+
+Value and urgency stay separate columns rather than one blended score, so it is always clear
+which one is driving a suggestion.
+
 **Output Format:**
 ```text
 My League · 2026 · 12 teams
 Starting lineup: QB RB2 WR2 TE D/ST K FLEX
 Starters drafted leaguewide: D/ST 12 · K 12 · QB 12 · RB 28 · TE 12 · WR 32
+
+Round 3 · pick 29 of 192 · ON THE CLOCK: Team Alpha
+You: Team Alpha
+Your roster: RB WR
+Still need: QB RB WR FLEX K
+
+Best available for your needs (your next pick: 41):
+  1  Bucky Irving             RB   [RB]    VOR  121.4   ADP  33.2   bye 11   take now
+  2  DK Metcalf               WR   [WR]    VOR  118.0   ADP  38.9   bye 5    coin flip
+  3  Jaxon Smith-Njigba       WR   [FLEX]  VOR  112.7   ADP  52.1   bye --   can wait
 
    #  Name                     Pos       Proj      VOR     ADP       Δ  Bye
 ----------------------------------------------------------------------------
@@ -54,6 +90,41 @@ Starters drafted leaguewide: D/ST 12 · K 12 · QB 12 · RB 28 · TE 12 · WR 32
 
 Replacement level: D/ST 93 · K 143 · QB 287 · RB 186 · TE 167 · WR 187
 ```
+
+### Live drafts
+
+`--live` reads ESPN's REST API, which **does not publish picks while a draft is running**:
+every pick reports as undrafted until the draft completes, then the whole thing backfills at
+once. During the draft itself, `--live` shows an untouched board.
+
+`--live-draft` connects to ESPN's actual draft room feed instead, so picks appear as they
+happen and `draft <name>` sends your pick.
+
+```bash
+espn-ffl draft-board --live-draft
+```
+
+```text
+LIVE · connected as Your Team · picks arrive automatically
+`draft <name>` to pick · `list` · `quit`
+draft> draft gibbs
+Sent pick: Jahmyr Gibbs
+```
+
+**This takes over your draft session.** ESPN allows one draft connection per team, so
+starting this evicts your browser draft room. Nothing but autodraft will pick for you, so
+once it is running you must pick from here. If something else takes the session back, the
+board says so and stops rather than fighting for it.
+
+**Start it before the draft begins.** Only picks made after you connect are seen — ESPN
+sends prior state in a binary blob this tool does not decode, and the REST API cannot fill
+the gap because it publishes nothing mid-draft.
+
+Auction drafts are supported for pick tracking (`SOLD` counts as a pick), but there is no
+pick order, so on-the-clock and next-pick outlooks read as unknown.
+
+If you would rather keep the browser draft room, use `--interactive` and type picks
+yourself; it never connects to the draft service.
 
 ### `espn-ffl player-data`
 
