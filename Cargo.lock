@@ -269,7 +269,7 @@ dependencies = [
 
 [[package]]
 name = "espn-ffl"
-version = "2.2.0"
+version = "2.3.0"
 dependencies = [
  "clap",
  "dirs",
