@@ -227,21 +227,21 @@ pub async fn handle_draft_board_watch(
     let pool = ScoredPool::fetch(&params).await?;
 
     loop {
-        // Clear the screen so each refresh replaces the previous board.
-        print!("\x1b[2J\x1b[H");
-
         let board = pool.build_board(&params).await?;
-        print_board(&board, params.top.unwrap_or(DEFAULT_TOP));
+        let mut screen = board_text(&board, params.top.unwrap_or(DEFAULT_TOP));
 
         if board.live.as_ref().is_some_and(|l| l.drafted) {
+            repaint(&screen);
             println!("\nDraft complete — exiting watch.");
             return Ok(());
         }
 
-        println!(
-            "\nRefreshing every {}s · Ctrl-C to stop",
+        screen.push_str(&format!(
+            "\nRefreshing every {}s · Ctrl-C to stop\n",
             interval.as_secs()
-        );
+        ));
+        // Overwrite the previous frame in place; clearing first would flicker on every tick.
+        repaint(&screen);
         tokio::time::sleep(interval).await;
     }
 }
@@ -315,21 +315,22 @@ pub async fn handle_draft_board_live(mut params: DraftBoardParams) -> Result<()>
 
     loop {
         if dirty {
-            print!("\x1b[2J\x1b[H");
-            print_board(&pool.render(&params, Some(&draft), Some(&picks)), top);
-            println!(
-                "\nLIVE · connected as {} · {}",
+            let mut screen = board_text(&pool.render(&params, Some(&draft), Some(&picks)), top);
+            screen.push_str(&format!(
+                "\nLIVE · connected as {} · {}\n",
                 my_team.display_name(),
                 if snapshot_seen {
                     "picks arrive automatically"
                 } else {
                     "awaiting state snapshot, board may be incomplete"
                 }
-            );
+            ));
             if let Some(note) = message.take() {
-                println!("{}", note);
+                screen.push_str(&note);
+                screen.push('\n');
             }
-            println!("`draft <name>` to pick · `list` · `quit`");
+            screen.push_str("type a player to pick · `list` · `quit`\n");
+            repaint(&screen);
             print!("draft> ");
             let _ = std::io::stdout().flush();
             dirty = false;
@@ -554,6 +555,27 @@ fn my_turn_by_schedule(draft: &DraftResponse, picks: &FilePicks, my_team_id: u32
         == Some(my_team_id)
 }
 
+/// Redraw the screen in place, without a clear-then-draw flash.
+///
+/// Homing the cursor and clearing each line as it is rewritten overwrites the previous frame
+/// directly. Clearing the whole screen first leaves it briefly blank, which flickers several
+/// times a minute over a draft lasting hours.
+///
+/// Trailing content from a longer previous frame is removed at the end rather than up front,
+/// so nothing is ever blank between frames.
+fn repaint(screen: &str) {
+    use std::io::Write;
+    let mut out = String::with_capacity(screen.len() + 64);
+    out.push_str("\x1b[H"); // home, without clearing
+    for line in screen.lines() {
+        out.push_str(line);
+        out.push_str("\x1b[K\n"); // wipe whatever the old frame left on this line
+    }
+    out.push_str("\x1b[J"); // drop any rows the old frame used and this one does not
+    print!("{}", out);
+    let _ = std::io::stdout().flush();
+}
+
 /// Paint a status line at the top of the screen without disturbing the cursor.
 ///
 /// The board reserves its first line for this. Saving and restoring the cursor means a
@@ -712,16 +734,18 @@ pub async fn handle_draft_board_interactive(mut params: DraftBoardParams) -> Res
     let mut message: Option<String> = None;
 
     loop {
-        print!("\x1b[2J\x1b[H");
-        print_board(&pool.render(&params, Some(&draft), Some(&picks)), top);
+        let mut screen = board_text(&pool.render(&params, Some(&draft), Some(&picks)), top);
 
         if let Some(note) = message.take() {
-            println!("\n{}", note);
+            screen.push('\n');
+            screen.push_str(&note);
+            screen.push('\n');
         }
-        println!(
+        screen.push_str(
             "\nType a player to mark drafted · prefix * for your own pick · \
-             `undo` (last) · `undo <name>` · `list` · `quit`"
+             `undo` (last) · `undo <name>` · `list` · `quit`\n",
         );
+        repaint(&screen);
         print!("pick> ");
         let _ = std::io::stdout().flush();
 
@@ -1628,9 +1652,25 @@ fn slot_label(slot: u8) -> String {
 
 /// Render the board as a table.
 fn print_board(board: &DraftBoard, top: usize) {
-    println!();
+    print!("{}", board_text(board, top));
+}
+
+/// Render the board to text.
+///
+/// Built as a string rather than printed directly so live mode can repaint it in place: a
+/// clear-then-draw cycle flashes the whole screen several times a minute, which is
+/// unpleasant to sit in front of for a three-hour draft.
+fn board_text(board: &DraftBoard, top: usize) -> String {
+    use std::fmt::Write;
+    let mut out = String::new();
+
+    let _ = writeln!(out);
     if let Some(name) = &board.league_name {
-        println!("{} · {} · {} teams", name, board.season, board.team_count);
+        let _ = writeln!(
+            out,
+            "{} · {} · {} teams",
+            name, board.season, board.team_count
+        );
     }
 
     let lineup: Vec<String> = board
@@ -1645,7 +1685,7 @@ fn print_board(board: &DraftBoard, top: usize) {
         })
         .collect();
     if !lineup.is_empty() {
-        println!("Starting lineup: {}", lineup.join(" "));
+        let _ = writeln!(out, "Starting lineup: {}", lineup.join(" "));
     }
 
     // Flex slots are handed to whichever position actually fills them, which is what moves
@@ -1656,29 +1696,40 @@ fn print_board(board: &DraftBoard, top: usize) {
         .map(|(pos, total)| format!("{} {}", pos, total))
         .collect();
     if !allocation.is_empty() {
-        println!("Starters drafted leaguewide: {}", allocation.join(" · "));
+        let _ = writeln!(
+            out,
+            "Starters drafted leaguewide: {}",
+            allocation.join(" · ")
+        );
     }
 
     if let Some(live) = &board.live {
-        print_live_header(live);
+        out.push_str(&live_header_text(live));
     }
     if !board.unmatched_picks.is_empty() {
-        println!();
-        println!("!! Unresolved lines in the pick file (these players are STILL on the board):");
+        let _ = writeln!(out);
+        let _ = writeln!(
+            out,
+            "!! Unresolved lines in the pick file (these players are STILL on the board):"
+        );
         for line in &board.unmatched_picks {
-            println!("     {}", line);
+            let _ = writeln!(out, "     {}", line);
         }
     }
     if !board.recommendations.is_empty() {
-        print_recommendations(&board.recommendations, board.live.as_ref());
+        out.push_str(&recommendations_text(
+            &board.recommendations,
+            board.live.as_ref(),
+        ));
     }
 
-    println!();
-    println!(
+    let _ = writeln!(out);
+    let _ = writeln!(
+        out,
         "{:>4}  {:<24} {:<6} {:>7} {:>8} {:>7} {:>7} {:>4}",
         "#", "Name", "Pos", "Proj", "VOR", "ADP", "Δ", "Bye"
     );
-    println!("{}", "-".repeat(76));
+    let _ = writeln!(out, "{}", "-".repeat(76));
 
     let mut shown = 0;
     for entry in &board.entries {
@@ -1703,7 +1754,8 @@ fn print_board(board: &DraftBoard, top: usize) {
             .map(|b| b.to_string())
             .unwrap_or_else(|| "--".to_string());
 
-        println!(
+        let _ = writeln!(
+            out,
             "{:>4}  {:<24} {:<6} {:>7.1} {:>8.1} {:>7} {:>7} {:>4}",
             entry.value_rank,
             entry.name.chars().take(24).collect::<String>(),
@@ -1717,57 +1769,79 @@ fn print_board(board: &DraftBoard, top: usize) {
         shown += 1;
     }
 
-    println!();
+    let _ = writeln!(out);
     let replacement: Vec<String> = board
         .replacement_points
         .iter()
         .map(|(pos, pts)| format!("{} {:.0}", pos, pts))
         .collect();
-    println!("Replacement level: {}", replacement.join(" · "));
-    println!("Δ = ADP minus value rank; positive means the player usually goes later than this board rates them.");
+    let _ = writeln!(out, "Replacement level: {}", replacement.join(" · "));
+    let _ = writeln!(out, "Δ = ADP minus value rank; positive means the player usually goes later than this board rates them.");
+    out
 }
 
-/// Print the live-draft banner above the board.
-fn print_live_header(live: &LiveDraftState) {
-    println!();
+/// The live-draft banner shown above the board.
+fn live_header_text(live: &LiveDraftState) -> String {
+    use std::fmt::Write;
+    let mut out = String::new();
+
+    let _ = writeln!(out);
     if live.drafted {
-        println!("Draft complete · {} picks made", live.picks_made);
+        let _ = writeln!(out, "Draft complete · {} picks made", live.picks_made);
     } else {
         match (live.current_round, live.current_overall_pick) {
             (Some(round), Some(overall)) => {
                 let who = live.on_the_clock.as_deref().unwrap_or("unknown");
-                println!(
+                let _ = writeln!(
+                    out,
                     "Round {} · pick {} of {} · ON THE CLOCK: {}",
                     round, overall, live.total_picks, who
                 );
             }
-            _ => println!("Draft not started · {} picks scheduled", live.total_picks),
+            _ => {
+                let _ = writeln!(
+                    out,
+                    "Draft not started · {} picks scheduled",
+                    live.total_picks
+                );
+            }
         }
     }
 
     if let Some(team) = &live.my_team {
-        println!("You: {}", team);
+        let _ = writeln!(out, "You: {}", team);
         if live.my_roster.is_empty() {
-            println!("Your roster: (empty)");
+            let _ = writeln!(out, "Your roster: (empty)");
         } else {
-            println!("Your roster: {}", live.my_roster.join(" "));
+            let _ = writeln!(out, "Your roster: {}", live.my_roster.join(" "));
         }
         if live.my_needs.is_empty() {
-            println!("Still need: (starters full)");
+            let _ = writeln!(out, "Still need: (starters full)");
         } else {
-            println!("Still need: {}", live.my_needs.join(" "));
+            let _ = writeln!(out, "Still need: {}", live.my_needs.join(" "));
         }
     }
+    out
 }
 
-/// Print the best available players at the team's unfilled slots.
-fn print_recommendations(recs: &[Recommendation], live: Option<&LiveDraftState>) {
+/// The best available players at the team's unfilled slots.
+fn recommendations_text(recs: &[Recommendation], live: Option<&LiveDraftState>) -> String {
+    use std::fmt::Write;
+    let mut out = String::new();
     let next_pick = live.and_then(|l| l.next_pick_overall);
 
-    println!();
+    let _ = writeln!(out);
     match next_pick {
-        Some(pick) => println!("Best available for your needs (your next pick: {}):", pick),
-        None => println!("Best available for your needs:"),
+        Some(pick) => {
+            let _ = writeln!(
+                out,
+                "Best available for your needs (your next pick: {}):",
+                pick
+            );
+        }
+        None => {
+            let _ = writeln!(out, "Best available for your needs:");
+        }
     }
 
     for (i, rec) in recs.iter().enumerate() {
@@ -1781,7 +1855,8 @@ fn print_recommendations(recs: &[Recommendation], live: Option<&LiveDraftState>)
             .unwrap_or_else(|| "bye --".to_string());
 
         // The slot column is six wide so "[D/ST]" and "[FLEX]" do not push the row out.
-        println!(
+        let _ = writeln!(
+            out,
             "  {}  {:<24} {:<4} {:<7} VOR {:>6.1}   ADP {:>5}   {:<7}  {}",
             i + 1,
             rec.name.chars().take(24).collect::<String>(),
@@ -1793,6 +1868,7 @@ fn print_recommendations(recs: &[Recommendation], live: Option<&LiveDraftState>)
             rec.outlook.label(),
         );
     }
+    out
 }
 
 #[cfg(test)]
@@ -2403,6 +2479,54 @@ mod tests {
             &pool
         )
         .is_none());
+    }
+
+    #[test]
+    fn repaint_overwrites_rather_than_blanking_the_screen() {
+        // A clear-then-draw cycle leaves the screen momentarily empty and flickers. The
+        // repaint must home the cursor, wipe each line as it rewrites it, and only drop
+        // leftover rows at the very end.
+        let painted = {
+            let mut out = String::from("\x1b[H");
+            for line in "alpha\nbeta".lines() {
+                out.push_str(line);
+                out.push_str("\x1b[K\n");
+            }
+            out.push_str("\x1b[J");
+            out
+        };
+        assert!(
+            !painted.contains("\x1b[2J"),
+            "must not clear the whole screen"
+        );
+        assert!(painted.starts_with("\x1b[H"), "must home the cursor first");
+        assert!(painted.ends_with("\x1b[J"), "leftover rows dropped last");
+        assert_eq!(
+            painted.matches("\x1b[K").count(),
+            2,
+            "every line wiped as rewritten"
+        );
+    }
+
+    #[test]
+    fn board_text_renders_without_printing() {
+        let board = DraftBoard {
+            league_name: Some("Test".to_string()),
+            season: 2026,
+            team_count: 12,
+            starting_lineup: vec![("QB".to_string(), 1)],
+            starters_by_position: BTreeMap::new(),
+            replacement_points: BTreeMap::new(),
+            entries: build_entries(&scored_pool(), &levels_for_test(), &HashSet::new(), None),
+            live: None,
+            recommendations: Vec::new(),
+            unmatched_picks: Vec::new(),
+        };
+        let text = board_text(&board, 2);
+        assert!(text.contains("Test · 2026 · 12 teams"));
+        assert!(text.contains("Top RB"), "the board rows are present");
+        // Only `top` rows are rendered, so the frame height stays predictable.
+        assert!(!text.contains("Low RB"), "row limit is honoured");
     }
 
     #[test]

@@ -106,11 +106,16 @@ espn-ffl draft-board --live-draft
 
 ```text
 LIVE · connected as Your Team · picks arrive automatically
-`draft <name>` to pick · `list` · `quit`
-draft> draft gibbs
+type a player to pick · `list` · `quit`
+draft> gibbs
 Sent Jahmyr Gibbs — awaiting confirmation...
 Pick confirmed: Jahmyr Gibbs
 ```
+
+A bare name is the pick; `draft gibbs` also works if you prefer being explicit. Names match
+any case-insensitive substring, and an ambiguous one is rejected with its candidates rather
+than guessed. The board repaints in place rather than clearing, so it does not flash between
+picks.
 
 When it is your turn a countdown ticks in place at the top of the screen, so you can type a
 pick without the board wiping what you have typed. **Nothing picks for you** — the tool never
