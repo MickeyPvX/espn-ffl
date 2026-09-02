@@ -5,7 +5,10 @@ use espn_ffl::{
     cli::{Commands, ESPN},
     commands::{
         common::CommandParamsBuilder,
-        draft_board::{handle_draft_board, handle_draft_board_watch, DraftBoardParams},
+        draft_board::{
+            handle_draft_board, handle_draft_board_interactive, handle_draft_board_live,
+            handle_draft_board_watch, DraftBoardParams,
+        },
         league_data::handle_league_data,
         player_data::{handle_player_data, PlayerDataParams},
         projection_analysis::{handle_projection_analysis, ProjectionAnalysisParams},
@@ -85,6 +88,9 @@ async fn main() -> Result<()> {
             live,
             refresh,
             watch,
+            live_draft,
+            interactive,
+            taken_file,
             team,
             team_id,
             json,
@@ -96,16 +102,22 @@ async fn main() -> Result<()> {
             params.top = Some(top);
             params.pool_size = pool_size;
             params.rank_type = rank_type;
-            params.live = live;
+            // A pick file is itself live draft state, so it turns the live path on.
+            params.live = live || taken_file.is_some();
+            params.taken_file = taken_file;
             params.refresh = refresh;
             params.team = team;
             params.team_id = team_id;
             params.as_json = json;
             params.debug = debug;
 
-            match watch {
-                Some(interval) => handle_draft_board_watch(params, interval).await?,
-                None => handle_draft_board(params).await?,
+            match (live_draft, interactive, watch) {
+                (true, _, _) => handle_draft_board_live(params).await?,
+                (false, true, _) => handle_draft_board_interactive(params).await?,
+                (false, false, Some(interval)) => {
+                    handle_draft_board_watch(params, interval).await?
+                }
+                (false, false, None) => handle_draft_board(params).await?,
             }
         }
 

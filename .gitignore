@@ -15,3 +15,8 @@ projections.json
 draft_board.json
 my_roster.json
 team_projections.json
+
+# Pick files written by `draft-board --interactive --taken-file`; they name real
+# players and teams from a live draft.
+picks.txt
+*.picks
