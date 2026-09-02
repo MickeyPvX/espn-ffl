@@ -178,6 +178,34 @@ pub enum Commands {
         #[clap(long, value_name = "SECONDS")]
         watch: Option<u64>,
 
+        /// Follow the draft on ESPN's live feed, drafting from this tool.
+        ///
+        /// The only mode that sees picks as they happen: ESPN's REST API reports an
+        /// untouched league until the draft completes. Picks remove themselves from the
+        /// board, and `draft <name>` sends your pick.
+        ///
+        /// WARNING: ESPN allows one draft connection per team, so this evicts your browser
+        /// draft room. Nothing but autodraft will pick for you, so pick from here.
+        #[clap(long)]
+        live_draft: bool,
+
+        /// Track the draft interactively: type each pick at a prompt and the board redraws.
+        ///
+        /// Use this during a live draft, when ESPN's API reports the draft in progress but
+        /// publishes no picks. Combine with --taken-file to save picks as you go and resume
+        /// after a restart.
+        #[clap(long, short = 'i')]
+        interactive: bool,
+
+        /// Track picks from a local file instead of ESPN's draft feed (implies --live).
+        ///
+        /// One player name per line, in pick order; blank lines and `#` comments are
+        /// ignored. Prefix a line with `*` to mark it as your own pick. Re-read on every
+        /// refresh, so with --watch you can append picks as they happen. Use this when
+        /// ESPN's API reports the draft in progress but publishes no picks.
+        #[clap(long, value_name = "PATH")]
+        taken_file: Option<std::path::PathBuf>,
+
         /// Your fantasy team name (partial match). Defaults to the team owned by ESPN_SWID.
         #[clap(long)]
         team: Option<String>,
