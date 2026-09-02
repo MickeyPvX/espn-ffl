@@ -22,7 +22,8 @@ use crate::{
         draft::{get_draft_detail, DraftResponse},
         http::get_draft_pool,
         live_draft::{
-            recover_prior_picks, DraftEvent, LiveDraftSession, PriorPick, LEFT_REASON_DISPLACED,
+            recover_prior_picks, DraftEvent, DraftStream, LiveDraftSession, PriorPick,
+            LEFT_REASON_DISPLACED,
         },
         types::LeagueSettings,
         vor::{compute_replacement_levels, Projected, ReplacementLevels},
@@ -277,8 +278,8 @@ pub async fn handle_draft_board_live(mut params: DraftBoardParams) -> Result<()>
     let my_team_id = my_team.id;
 
     println!("Joining the draft room as {}...", my_team.display_name());
-    let session = LiveDraftSession::open(pool.league_id, params.season, my_team_id).await?;
-    let mut stream = session.subscribe().await?;
+    let (session, mut stream) =
+        connect_when_room_opens(pool.league_id, params.season, my_team_id).await?;
 
     // Picks are keyed the same way the pick-file path keys them, so the whole board
     // pipeline — needs, recommendations, outlooks — works unchanged.
@@ -473,6 +474,68 @@ pub async fn handle_draft_board_live(mut params: DraftBoardParams) -> Result<()>
                 }
             }
         }
+    }
+}
+
+/// How often to retry while waiting for a draft room to open, matching ESPN's own client.
+const ROOM_RETRY_SECS: u64 = 3;
+
+/// Connect once the draft room exists, waiting for it if the draft has not started.
+///
+/// ESPN creates the room when the draft opens, not when the waiting room fills: joining
+/// beforehand fails with a generic HTTP 500. Retrying means the tool can be started ahead of
+/// time and will attach the moment the draft begins, instead of the user having to catch
+/// that instant by hand — and never having to fall back on snapshot recovery for picks
+/// missed while they were getting connected.
+///
+/// The session is rebuilt on each attempt so the draft token cannot go stale during a long
+/// wait.
+async fn connect_when_room_opens(
+    league_id: LeagueId,
+    season: Season,
+    team_id: u32,
+) -> Result<(LiveDraftSession, DraftStream)> {
+    let started = std::time::Instant::now();
+    let mut announced = false;
+
+    loop {
+        match LiveDraftSession::open(league_id, season, team_id).await {
+            Ok(session) => match session.subscribe().await {
+                Ok(stream) => {
+                    if announced {
+                        println!("\nDraft room open — connected.");
+                    }
+                    return Ok((session, stream));
+                }
+                Err(e) => {
+                    if !announced {
+                        println!(
+                            "Draft room is not open yet ({}). Waiting — this will connect \
+                             automatically when the draft starts. Ctrl-C to stop.",
+                            short_reason(&e)
+                        );
+                        announced = true;
+                    }
+                }
+            },
+            // A failure to even fetch the token is worth surfacing: bad credentials or the
+            // wrong team would otherwise look like an endless wait.
+            Err(e) if !announced => return Err(e),
+            Err(_) => {}
+        }
+
+        print!("\r  waiting... {}s elapsed", started.elapsed().as_secs());
+        let _ = std::io::Write::flush(&mut std::io::stdout());
+        tokio::time::sleep(std::time::Duration::from_secs(ROOM_RETRY_SECS)).await;
+    }
+}
+
+/// One-line form of an error, for a status message.
+fn short_reason(error: &crate::EspnError) -> String {
+    let text = error.to_string();
+    match text.char_indices().nth(60) {
+        Some((cut, _)) => format!("{}...", &text[..cut]),
+        None => text,
     }
 }
 

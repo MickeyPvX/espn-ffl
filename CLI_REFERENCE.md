@@ -123,6 +123,10 @@ starting this evicts your browser draft room. Nothing but autodraft will pick fo
 once it is running you must pick from here. If something else takes the session back, the
 board says so and stops rather than fighting for it.
 
+You can start it while the draft is still in its waiting room. ESPN does not create the
+draft room until the draft actually opens, so the tool waits and connects by itself the
+moment it does — you do not have to catch that instant by hand.
+
 **Start it before the draft begins.** Only picks made after you connect are seen — ESPN
 sends prior state in a binary blob this tool does not decode, and the REST API cannot fill
 the gap because it publishes nothing mid-draft.
