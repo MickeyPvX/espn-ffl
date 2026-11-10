@@ -20,7 +20,8 @@ env:
 
 jobs:
   cargo-deny:
-    name: Dependency policy (cargo-deny)
+    # Name matches the required status check in the main-branch ruleset.
+    name: Security Audit
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
