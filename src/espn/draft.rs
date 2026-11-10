@@ -7,6 +7,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+#[cfg(test)]
+use crate::espn::types::normalize_swid;
 use crate::{espn::types::Team, LeagueId, PlayerId, Result, Season};
 
 /// Sentinel ESPN uses for a pick slot that has not been made yet.
@@ -137,13 +139,7 @@ impl DraftResponse {
     /// ESPN wraps the SWID in braces and the environment variable is sometimes stored with a
     /// trailing separator, so both sides are normalised before comparing.
     pub fn team_for_owner(&self, swid: &str) -> Option<&Team> {
-        let wanted = normalize_swid(swid);
-        self.teams.iter().find(|team| {
-            team.owners
-                .iter()
-                .flatten()
-                .any(|owner| normalize_swid(owner) == wanted)
-        })
+        self.teams.iter().find(|team| team.is_owned_by(swid))
     }
 
     /// Look up a team by id.
@@ -153,24 +149,8 @@ impl DraftResponse {
 
     /// Find a team whose name contains the given text, case-insensitively.
     pub fn team_by_name(&self, needle: &str) -> Option<&Team> {
-        let needle = needle.to_lowercase();
-        self.teams.iter().find(|t| {
-            t.name
-                .as_deref()
-                .is_some_and(|n| n.to_lowercase().contains(&needle))
-                || t.abbrev
-                    .as_deref()
-                    .is_some_and(|a| a.to_lowercase().contains(&needle))
-        })
+        self.teams.iter().find(|t| t.name_matches(needle))
     }
-}
-
-/// Strip braces, case and stray separators from a SWID so two spellings compare equal.
-fn normalize_swid(swid: &str) -> String {
-    swid.trim()
-        .trim_end_matches(':')
-        .trim_matches(|c| c == '{' || c == '}')
-        .to_ascii_lowercase()
 }
 
 /// Fetch current draft state and teams for a league.

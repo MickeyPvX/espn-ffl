@@ -9,6 +9,20 @@ use espn_ffl::{
     storage::*,
     EspnError, LeagueId, PlayerId, Season, Week, LEAGUE_ID_ENV_VAR,
 };
+use std::sync::{Mutex, MutexGuard};
+
+/// Serialises tests that read or write `LEAGUE_ID_ENV_VAR`.
+///
+/// The environment is process-wide and tests run in parallel threads, so without this one
+/// test can clear the variable between another's `set_var` and `resolve_league_id`.
+static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+/// Take the env lock, recovering it if a previous test panicked while holding it.
+fn env_lock() -> MutexGuard<'static, ()> {
+    ENV_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 #[test]
 fn test_resolve_league_id_from_option() {
@@ -20,6 +34,7 @@ fn test_resolve_league_id_from_option() {
 
 #[test]
 fn test_resolve_league_id_from_env() {
+    let _env = env_lock();
     // Clear any existing env var
     std::env::remove_var(LEAGUE_ID_ENV_VAR);
 
@@ -36,6 +51,7 @@ fn test_resolve_league_id_from_env() {
 
 #[test]
 fn test_resolve_league_id_missing() {
+    let _env = env_lock();
     // Clear env var
     std::env::remove_var(LEAGUE_ID_ENV_VAR);
 
@@ -51,6 +67,7 @@ fn test_resolve_league_id_missing() {
 
 #[test]
 fn test_resolve_league_id_invalid_env() {
+    let _env = env_lock();
     // Set invalid env var
     std::env::set_var(LEAGUE_ID_ENV_VAR, "not_a_number");
 
@@ -63,6 +80,7 @@ fn test_resolve_league_id_invalid_env() {
 
 #[test]
 fn test_resolve_league_id_option_overrides_env() {
+    let _env = env_lock();
     // Set env var
     std::env::set_var(LEAGUE_ID_ENV_VAR, "99999");
 
@@ -78,6 +96,7 @@ fn test_resolve_league_id_option_overrides_env() {
 
 #[test]
 fn test_resolve_league_id_zero_value() {
+    let _env = env_lock();
     // Test zero value from environment variable (should fail)
     std::env::set_var(LEAGUE_ID_ENV_VAR, "0");
     let result = resolve_league_id(None);

@@ -604,6 +604,7 @@ fn test_roster_update_only_touches_rostered_players_and_clears_stale() {
                         player_id,
                         lineup_slot_id: 2,
                         injury_status: None,
+                        player_pool_entry: None,
                     })
                     .collect(),
             }),

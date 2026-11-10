@@ -1,0 +1,50 @@
+name: Security
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  # Advisories are published against code that hasn't changed, so check daily too.
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # Pinned: an unpinned install runs whatever was published minutes ago.
+  CARGO_DENY_VERSION: 0.20.2
+
+jobs:
+  cargo-deny:
+    # Name matches the required status check in the main-branch ruleset.
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master, 2026-10-16
+        with:
+          toolchain: stable
+
+      - name: Cache cargo-deny binary
+        id: cache-deny
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cargo/bin/cargo-deny
+          key: cargo-deny-${{ runner.os }}-${{ env.CARGO_DENY_VERSION }}
+
+      - name: Install cargo-deny
+        if: steps.cache-deny.outputs.cache-hit != 'true'
+        run: cargo install --locked "cargo-deny@${CARGO_DENY_VERSION}"
+
+      # Advisories (RustSec), licenses, banned crates and allowed sources, per deny.toml.
+      - name: Check dependencies
+        run: cargo deny --locked check

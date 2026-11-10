@@ -5,6 +5,9 @@ use crate::error::Result;
 use crate::{PlayerId, Season, Week};
 use rusqlite::params;
 
+/// `(player_id, position, season, projected, actual)` for one player-week.
+pub type ProjectionHistoryRow = (PlayerId, String, Season, f64, f64);
+
 impl PlayerDatabase {
     /// Get players with the biggest projection errors (over/under estimated)
     pub fn get_projection_analysis(
@@ -266,5 +269,35 @@ impl PlayerDatabase {
         });
 
         Ok(estimates)
+    }
+
+    /// Projected-vs-actual history from before `week` of `season`, for every position.
+    ///
+    /// Covers earlier seasons too, so variance curves have enough data early in a season.
+    /// Rows are `(player_id, position, season, projected, actual)` for weeks ESPN projected
+    /// the player to score (byes and ruled-out weeks carry no information about spread).
+    pub fn projection_history_before(
+        &self,
+        season: Season,
+        week: Week,
+    ) -> Result<Vec<ProjectionHistoryRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT s.player_id, p.position, s.season, s.projected_points, s.actual_points
+             FROM player_weekly_stats s
+             JOIN players p ON p.player_id = s.player_id
+             WHERE s.projected_points > 0
+               AND s.actual_points IS NOT NULL
+               AND (s.season < ?1 OR (s.season = ?1 AND s.week < ?2))",
+        )?;
+        let rows = stmt.query_map(params![season.as_u16(), week.as_u16()], |row| {
+            Ok((
+                PlayerId::new(row.get(0)?),
+                row.get::<_, String>(1)?,
+                Season::new(row.get(2)?),
+                row.get::<_, f64>(3)?,
+                row.get::<_, f64>(4)?,
+            ))
+        })?;
+        Ok(rows.collect::<std::result::Result<_, _>>()?)
     }
 }
