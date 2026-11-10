@@ -131,9 +131,55 @@ pub enum Commands {
         #[clap(long)]
         refresh: bool,
 
-        /// Bias adjustment strength (0.0 = no adjustment, 1.0 = full bias correction, >1.0 = amplified correction)
+        /// Bias adjustment strength (0.0 = none, the default; 1.0 = full correction).
+        ///
+        /// Backtests on 2025 and 2026 found that correcting for a player's past misses made
+        /// projections less accurate at every strength above zero: a player's miss in one
+        /// part of the season does not predict the next. Kept for experimentation.
         #[clap(long)]
         bias_strength: Option<f64>,
+    },
+
+    /// Win probability for this week's matchup and the lineup most likely to win it.
+    ///
+    /// Takes ESPN's projections as each player's expected score, models how widely each
+    /// player's outcome spreads around it, and compares your current lineup, your highest
+    /// projected lineup, and the lineup with the best chance of beating your opponent's.
+    /// Projected underdogs are steered toward upside, favourites toward a steady floor.
+    ///
+    /// Spread estimates come from the local database, so run `update-all-data` first.
+    Matchup {
+        /// League ID (or set `ESPN_FFL_LEAGUE_ID` env var).
+        #[clap(long, short)]
+        league_id: Option<LeagueId>,
+
+        /// Season year (defaults to the season in progress).
+        #[clap(long, short, default_value_t = Season::default())]
+        season: Season,
+
+        /// Week to plan for.
+        #[clap(long, short)]
+        week: Week,
+
+        /// Your fantasy team name (partial match). Defaults to the team owned by ESPN_SWID.
+        #[clap(long)]
+        team: Option<String>,
+
+        /// Your fantasy team ID.
+        #[clap(long)]
+        team_id: Option<u32>,
+
+        /// Opponent team name (partial match). Defaults to this week's scheduled opponent.
+        #[clap(long)]
+        opponent: Option<String>,
+
+        /// Refetch rosters and projections instead of using the cache.
+        #[clap(long)]
+        refresh: bool,
+
+        /// Output results as JSON instead of a table.
+        #[clap(long)]
+        json: bool,
     },
 
     /// Rank the draft pool by value over replacement in this league's scoring.
@@ -221,6 +267,54 @@ pub enum Commands {
         /// Print request URL and filter for debugging.
         #[clap(long)]
         debug: bool,
+    },
+
+    /// Rank free agents by how much they would improve your team.
+    ///
+    /// Each free agent is scored by adding them and dropping whichever of your players costs
+    /// the least: the projected points your starting lineup gains over the rest of the
+    /// regular season (bench depth and bye weeks included), and the change in your chance
+    /// to win this week's matchup.
+    Waivers {
+        /// League ID (or set `ESPN_FFL_LEAGUE_ID` env var).
+        #[clap(long, short)]
+        league_id: Option<LeagueId>,
+
+        /// Season year (defaults to the season in progress).
+        #[clap(long, short, default_value_t = Season::default())]
+        season: Season,
+
+        /// First week to count (normally the upcoming week).
+        #[clap(long, short)]
+        week: Week,
+
+        /// Last week to count. Defaults to the end of the regular season.
+        #[clap(long)]
+        through_week: Option<Week>,
+
+        /// Only consider free agents at these positions (repeatable): `-p RB -p WR`.
+        #[clap(short = 'p', long = "position", value_parser = clap::value_parser!(Position))]
+        positions: Option<Vec<Position>>,
+
+        /// Number of recommendations to show.
+        #[clap(long, default_value_t = 15)]
+        top: usize,
+
+        /// Your fantasy team name (partial match). Defaults to the team owned by ESPN_SWID.
+        #[clap(long)]
+        team: Option<String>,
+
+        /// Your fantasy team ID.
+        #[clap(long)]
+        team_id: Option<u32>,
+
+        /// Refetch rosters and projections instead of using the cache.
+        #[clap(long)]
+        refresh: bool,
+
+        /// Output results as JSON instead of a table.
+        #[clap(long)]
+        json: bool,
     },
 
     /// Update all player data (actual and projected) for multiple weeks.

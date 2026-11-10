@@ -10,9 +10,11 @@ use espn_ffl::{
             handle_draft_board_watch, DraftBoardParams,
         },
         league_data::handle_league_data,
+        matchup::{handle_matchup, MatchupParams},
         player_data::{handle_player_data, PlayerDataParams},
         projection_analysis::{handle_projection_analysis, ProjectionAnalysisParams},
         update_all_data::handle_update_all_data,
+        waivers::{handle_waivers, WaiversParams},
     },
     Result,
 };
@@ -61,8 +63,8 @@ async fn main() -> Result<()> {
             refresh,
             bias_strength,
         } => {
-            // Default to 1.0 (original conservative approach) if not specified
-            let bias_factor = bias_strength.unwrap_or(1.0);
+            // Off by default: backtests showed any bias correction hurt accuracy.
+            let bias_factor = bias_strength.unwrap_or(0.0);
             let fantasy_team_filter = filters.get_fantasy_team_filter();
 
             let params = ProjectionAnalysisParams::new(filters.season, filters.week, bias_factor)
@@ -119,6 +121,56 @@ async fn main() -> Result<()> {
                 }
                 (false, false, None) => handle_draft_board(params).await?,
             }
+        }
+
+        Commands::Matchup {
+            league_id,
+            season,
+            week,
+            team,
+            team_id,
+            opponent,
+            refresh,
+            json,
+        } => {
+            handle_matchup(MatchupParams {
+                league_id,
+                season,
+                week,
+                team,
+                team_id,
+                opponent,
+                refresh,
+                as_json: json,
+            })
+            .await?
+        }
+
+        Commands::Waivers {
+            league_id,
+            season,
+            week,
+            through_week,
+            positions,
+            top,
+            team,
+            team_id,
+            refresh,
+            json,
+        } => {
+            handle_waivers(WaiversParams {
+                league_id,
+                season,
+                week,
+                team,
+                team_id,
+                positions,
+                top,
+                through_week,
+                refresh,
+                as_json: json,
+            })
+            .await?
         }
 
         Commands::UpdateAllData {

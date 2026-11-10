@@ -32,6 +32,7 @@ use crate::{
 };
 
 use super::{common::scoring_slot_id, league_data::resolve_league_id};
+use crate::cli::types::position::{lineup_slot_label as slot_label, slot_flexibility};
 
 /// Default number of players to pull from ESPN for the board.
 ///
@@ -1616,38 +1617,6 @@ fn remaining_needs(settings: &LeagueSettings, roster: &[Position]) -> Vec<u8> {
         }
     }
     needs
-}
-
-/// How many positions a slot accepts, so dedicated slots sort ahead of flex ones.
-fn slot_flexibility(slot: u8) -> usize {
-    const CANDIDATES: [Position; 6] = [
-        Position::QB,
-        Position::RB,
-        Position::WR,
-        Position::TE,
-        Position::K,
-        Position::DEF,
-    ];
-    CANDIDATES.iter().filter(|p| p.fills_slot(slot)).count()
-}
-
-/// Human-readable name for a lineup slot id.
-fn slot_label(slot: u8) -> String {
-    match slot {
-        0 => "QB".to_string(),
-        2 => "RB".to_string(),
-        3 => "RB/WR".to_string(),
-        4 => "WR".to_string(),
-        5 => "WR/TE".to_string(),
-        6 => "TE".to_string(),
-        7 => "OP".to_string(),
-        16 => "D/ST".to_string(),
-        17 => "K".to_string(),
-        20 => "BE".to_string(),
-        21 => "IR".to_string(),
-        23 => "FLEX".to_string(),
-        other => format!("SLOT{}", other),
-    }
 }
 
 /// Render the board as a table.

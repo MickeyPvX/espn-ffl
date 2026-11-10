@@ -3,5 +3,6 @@ pub mod compute;
 pub mod draft;
 pub mod http;
 pub mod live_draft;
+pub mod matchup;
 pub mod types;
 pub mod vor;

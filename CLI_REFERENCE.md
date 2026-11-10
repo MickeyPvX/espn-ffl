@@ -196,7 +196,7 @@ Analyze ESPN projection accuracy with advanced bias correction algorithms.
 - `--roster-status <STATUS>` - Filter by roster status (same options as player-data)
 
 **Analysis Options:**
-- `--bias-strength <FLOAT>` - Bias correction strength (0.0-2.0+, default: 1.0)
+- `--bias-strength <FLOAT>` - Bias correction strength (default: 0.0, meaning no correction)
 - `--json` - Output as JSON
 - `--refresh` - Force fresh data from ESPN API
 
@@ -207,11 +207,70 @@ Name                 Pos      ESPN     Adj      Final    Conf%    Reasoning
 Puka Nacua           WR       21.2     +5.3     26.5     49      % Avg bias: ESPN underestimates by 7.9 pts (4 games, 4.6 std) - adjusted up 5.3 pts (49% confidence)
 ```
 
-The projection analysis uses a sophisticated algorithm that:
-- Calculates player-specific bias patterns from historical data
-- Excludes BYE weeks (0-point projections) from analysis
-- Bases confidence on pattern consistency (lower std dev = higher confidence)
-- Makes aggressive but statistically sound adjustments (2-5+ point corrections)
+The bias correction shifts ESPN's projection by the player's average miss so far this season,
+shrunk toward zero for small samples. **It is off by default.** A walk-forward backtest on 2025
+and 2026 found it made projections *less* accurate at every strength above zero, every week:
+a player's miss in one stretch of the season has essentially no correlation with the next
+(r ≈ −0.1 to 0.0), so correcting for it chases noise. With `--bias-strength 0` the "Final"
+column is ESPN's projection in your league's scoring.
+
+### `espn-ffl matchup`
+
+Win probability for this week's matchup, and the lineup most likely to win it.
+
+```bash
+espn-ffl matchup --week 10
+```
+
+- `-w, --week <WEEK>` - Week to plan for (required)
+- `--team <NAME>` / `--team-id <ID>` - Your team (defaults to the team owned by `ESPN_SWID`)
+- `--opponent <NAME>` - Opponent override (defaults to the scheduled opponent)
+- `-l, --league-id`, `-s, --season`, `--refresh`, `--json`
+
+Each player's expected score is ESPN's projection in your league's scoring; players ruled out
+(OUT, IR) are treated as scoring zero. How widely each player's score spreads around that
+projection is fitted from the local database by position and projection level, blended
+lightly with the player's own history, so run `update-all-data` first. Team totals are treated
+as normal distributions of independent players; on 2025-26 matchups this predicted the spread
+of final margins within two points, and favourites won 67% of the time.
+
+The report compares three lineups against the opponent's best projected lineup:
+
+- **Your current lineup** as set on ESPN, flagging empty slots and starters on bye or ruled out
+- **Max projected lineup** - the "Lineup fixes" section lists the start/bench moves to get there
+- **Best chance to win** - searches lineups that trade projected points for variance (upside
+  when you're the underdog, a steady floor when you're the favourite). In practice this rarely
+  differs from the max projected lineup: spread grows with projection at a similar rate at every
+  position, so the higher-projected player is usually also the higher-upside one.
+
+Players whose game has started are locked in place.
+
+### `espn-ffl waivers`
+
+Free agents ranked by how much they would improve your team.
+
+```bash
+espn-ffl waivers --week 10
+espn-ffl waivers --week 10 -p RB -p WR --through-week 17
+```
+
+- `-w, --week <WEEK>` - First week to count (required; normally the upcoming week)
+- `--through-week <WEEK>` - Last week to count (defaults to the end of the regular season)
+- `-p, --position <POS>` - Only consider these positions (repeatable)
+- `--top <N>` - Recommendations to show (default: 15)
+- `--team <NAME>` / `--team-id <ID>`, `-l, --league-id`, `-s, --season`, `--refresh`, `--json`
+
+For each free agent (the top 12 per position by projected points), the command tries adding
+them and dropping each of your unlocked non-IR players (or using an open roster spot), and keeps
+the drop that leaves the strongest team. Columns:
+
+- `Wk Pts` / `ROS Pts` - ESPN's projection this week / over the evaluated weeks
+- `+Lineup` - projected points your **starting lineup** gains over the evaluated weeks. Bench
+  depth that would never start counts for nothing; covering a bye week or an injury counts fully.
+- `+Win` - change in your chance to win this week's matchup
+- `Drop` - who to cut; ties go to the player with the lowest projection
+
+"Free agent" means on no roster in your league; waiver-wire timing isn't modelled.
 
 ### `espn-ffl league-data`
 
@@ -276,6 +335,19 @@ espn-ffl player-data -p RB --injury-status active --roster-status rostered --wee
 espn-ffl player-data -p WR --roster-status fa --injury-status active --week 1
 ```
 
+### Weekly lineup and pickups
+
+```bash
+# Start/sit: who to play this week and your chance to win
+espn-ffl matchup --week 10
+
+# Best free-agent adds for the rest of the regular season
+espn-ffl waivers --week 10
+
+# Just running backs, counting through the fantasy playoffs
+espn-ffl waivers --week 10 -p RB --through-week 17
+```
+
 ### Projection Analysis
 
 ```bash
@@ -288,8 +360,8 @@ espn-ffl projection-analysis -p QB --week 5
 # Team-specific analysis
 espn-ffl projection-analysis --team alpha --week 5
 
-# Custom bias strength
-espn-ffl projection-analysis --week 2 --bias-strength 1.5
+# Re-enable the (backtested as harmful) bias correction for experiments
+espn-ffl projection-analysis --week 2 --bias-strength 1.0
 
 # Export as JSON for analysis
 espn-ffl projection-analysis --week 2 --json > projections.json

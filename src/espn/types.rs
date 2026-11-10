@@ -498,6 +498,22 @@ pub struct RosterEntry {
     pub lineup_slot_id: u8,
     #[serde(rename = "injuryStatus")]
     pub injury_status: Option<String>,
+    /// The player behind this roster spot, including their stats for the requested week.
+    #[serde(
+        rename = "playerPoolEntry",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub player_pool_entry: Option<PlayerPoolEntry>,
+}
+
+/// Player details nested in a roster entry.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct PlayerPoolEntry {
+    pub player: Player,
+    /// True once the player's game has kicked off and they can no longer be moved.
+    #[serde(rename = "lineupLocked", default)]
+    pub lineup_locked: bool,
 }
 
 /// Team roster from ESPN API
@@ -519,6 +535,30 @@ pub struct Team {
 }
 
 impl Team {
+    /// Whether the given SWID is one of this team's owners.
+    ///
+    /// ESPN wraps the SWID in braces and the environment variable is sometimes stored with a
+    /// trailing separator, so both sides are normalised before comparing.
+    pub fn is_owned_by(&self, swid: &str) -> bool {
+        let wanted = normalize_swid(swid);
+        self.owners
+            .iter()
+            .flatten()
+            .any(|owner| normalize_swid(owner) == wanted)
+    }
+
+    /// Whether the team's name or abbreviation contains `needle`, case-insensitively.
+    pub fn name_matches(&self, needle: &str) -> bool {
+        let needle = needle.to_lowercase();
+        self.name
+            .as_deref()
+            .is_some_and(|n| n.to_lowercase().contains(&needle))
+            || self
+                .abbrev
+                .as_deref()
+                .is_some_and(|a| a.to_lowercase().contains(&needle))
+    }
+
     /// Best available human-readable label for the team.
     pub fn display_name(&self) -> String {
         self.name
@@ -526,6 +566,30 @@ impl Team {
             .or_else(|| self.abbrev.clone())
             .unwrap_or_else(|| format!("Team {}", self.id))
     }
+}
+
+/// Strip braces, case and stray separators from a SWID so two spellings compare equal.
+pub(crate) fn normalize_swid(swid: &str) -> String {
+    swid.trim()
+        .trim_end_matches(':')
+        .trim_matches(|c| c == '{' || c == '}')
+        .to_ascii_lowercase()
+}
+
+/// Pick "my" team: by explicit id, then by name, then by the `ESPN_SWID` owner.
+pub fn resolve_team<'a>(
+    teams: &'a [Team],
+    team_id: Option<u32>,
+    team_name: Option<&str>,
+) -> Option<&'a Team> {
+    if let Some(id) = team_id {
+        return teams.iter().find(|t| t.id == id);
+    }
+    if let Some(name) = team_name {
+        return teams.iter().find(|t| t.name_matches(name));
+    }
+    let swid = std::env::var("ESPN_SWID").ok()?;
+    teams.iter().find(|t| t.is_owned_by(&swid))
 }
 
 /// League data with teams from ESPN API

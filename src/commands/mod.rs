@@ -3,7 +3,9 @@
 pub mod common;
 pub mod draft_board;
 pub mod league_data;
+pub mod matchup;
 pub mod player_data;
 pub mod player_filters;
 pub mod projection_analysis;
 pub mod update_all_data;
+pub mod waivers;

@@ -10,7 +10,9 @@ A fast, reliable command-line tool for querying ESPN Fantasy Football player sta
 - **Live draft mode** - Track picks as they happen, hide drafted players, see what your roster still needs
 - **Query player stats** by name, position, team, injury/roster status
 - **Get actual or projected points** for any week and season
-- **Projection analysis** - ESPN projection accuracy with bias correction
+- **Start/sit** - Your chance to win this week's matchup and the lineup moves that raise it
+- **Waiver targets** - Free agents ranked by how many points they add to your starting lineup
+- **Projection analysis** - ESPN projections in your league's scoring, with historical accuracy
 - **Smart filtering** - Server-side filtering for performance
 - **Export data** as JSON for analysis or integration
 - **Database caching** - Local storage for faster queries
@@ -89,8 +91,11 @@ espn-ffl player-data -n "Josh Allen" -n "Travis Kelce" --week 1
 # Get quarterbacks and wide receivers
 espn-ffl player-data -p QB -p WR --week 2
 
-# Get projection analysis with bias correction
-espn-ffl projection-analysis --week 5
+# Who to start this week, and your chance to win
+espn-ffl matchup --week 10
+
+# Free agents worth picking up, and who to drop
+espn-ffl waivers --week 10
 ```
 
 ### Draft board
@@ -145,6 +150,24 @@ Still need: QB RB WR TE D/ST K FLEX
 `--watch <SECONDS>` re-reads the draft on an interval until it completes. The player pool is
 fetched once up front, so each refresh is a single small request.
 
+### Start/sit and waivers
+
+`matchup` and `waivers` measure how widely each player's score spreads around ESPN's
+projection, using your league's history from the local database. Load it first:
+
+```bash
+espn-ffl update-all-data --through-week 9
+espn-ffl matchup --week 10
+espn-ffl waivers --week 10
+```
+
+Both take ESPN's weekly projections as each player's expected score. Backtests on 2025-26
+league data found nothing available here that reliably beats them, including correcting for
+a player's past misses (now off by default in `projection-analysis`). The edge comes from
+using them well: catching stale lineups, players on bye and ruled-out starters; judging
+pickups by how many points they add to your *starting lineup*, bye weeks included; and
+showing your real chance to win. See [CLI_REFERENCE.md](CLI_REFERENCE.md) for details.
+
 ### Being a good API citizen
 
 ESPN publishes no documented rate limit, so the tool stays deliberately conservative:
@@ -183,7 +206,7 @@ espn-ffl projection-analysis --team alpha --week 5
 4426515 Puka Nacua (WR) [week 1] 15.90 [Active] (FA)
 ```
 
-**Projection analysis:**
+**Projection analysis** (with `--bias-strength 1.0`; the default is no adjustment):
 ```text
 Name                 Pos      ESPN     Adj      Final    Conf%    Reasoning
 ----                 ---      ----     ---      -----    ----     ---------

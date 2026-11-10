@@ -63,7 +63,7 @@ pub enum Position {
     IR,
 }
 
-/// Lineup slot id for the bench, which every player is eligible for.
+/// Lineup slot accepting an RB or a WR.
 const SLOT_RB_WR: u8 = 3;
 /// Lineup slot accepting a WR or a TE.
 const SLOT_WR_TE: u8 = 5;
@@ -72,9 +72,9 @@ const SLOT_OP: u8 = 7;
 /// Flex slot, accepting an RB, WR, or TE.
 const SLOT_FLEX: u8 = 23;
 /// Bench slot, accepting anyone.
-const SLOT_BENCH: u8 = 20;
+pub const SLOT_BENCH: u8 = 20;
 /// Lineup slot id for injured reserve, which every player is eligible for.
-const SLOT_IR: u8 = 21;
+pub const SLOT_IR: u8 = 21;
 
 impl Position {
     /// Lineup slot ids matching this position, for the API's `filterSlotIds` filter.
@@ -177,6 +177,41 @@ impl Position {
             self,
             Position::QB | Position::RB | Position::WR | Position::TE
         )
+    }
+}
+
+/// How many positions a slot accepts, so dedicated slots sort ahead of flex ones.
+///
+/// Filling the most restrictive slots first lets a greedy lineup fill reach the best lineup:
+/// a flex slot never claims a player that only a dedicated slot could have used.
+pub fn slot_flexibility(slot: u8) -> usize {
+    const CANDIDATES: [Position; 6] = [
+        Position::QB,
+        Position::RB,
+        Position::WR,
+        Position::TE,
+        Position::K,
+        Position::DEF,
+    ];
+    CANDIDATES.iter().filter(|p| p.fills_slot(slot)).count()
+}
+
+/// Human-readable name for a lineup slot id.
+pub fn lineup_slot_label(slot: u8) -> String {
+    match slot {
+        0 => "QB".to_string(),
+        2 => "RB".to_string(),
+        SLOT_RB_WR => "RB/WR".to_string(),
+        4 => "WR".to_string(),
+        SLOT_WR_TE => "WR/TE".to_string(),
+        6 => "TE".to_string(),
+        SLOT_OP => "OP".to_string(),
+        16 => "D/ST".to_string(),
+        17 => "K".to_string(),
+        SLOT_BENCH => "BE".to_string(),
+        SLOT_IR => "IR".to_string(),
+        SLOT_FLEX => "FLEX".to_string(),
+        other => format!("SLOT{}", other),
     }
 }
 
