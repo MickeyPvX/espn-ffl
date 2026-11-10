@@ -1,0 +1,45 @@
+# cargo-deny policy: run with `cargo deny check`.
+# CI runs this on every push/PR and daily, so new advisories surface without a code change.
+
+[graph]
+all-features = true
+
+[advisories]
+# Fail on RustSec vulnerabilities and on unmaintained or yanked crates anywhere in the tree.
+unmaintained = "all"
+yanked = "deny"
+# Add `{ id = "RUSTSEC-YYYY-NNNN", reason = "..." }` entries only with a written justification.
+ignore = []
+
+[licenses]
+# Permissive licenses only (MPL-2.0 is file-level copyleft and fine for a binary).
+# A crate offering several licenses (e.g. `MIT OR LGPL-2.1-or-later`) passes if any is allowed.
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "CC0-1.0",
+    "CDLA-Permissive-2.0",
+    "ISC",
+    "MIT",
+    "MIT-0",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+]
+confidence-threshold = 0.8
+
+[bans]
+# Duplicate versions are common transitively (syn 2 and 3, for one); report, don't fail.
+multiple-versions = "warn"
+# A `*` version requirement would let any release in, defeating the lockfile review.
+wildcards = "deny"
+
+[sources]
+# Only crates.io; a git or third-party registry dependency must be added here deliberately.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

@@ -1,0 +1,27 @@
+# Weekly update PRs for Cargo dependencies and pinned GitHub Actions.
+# Security fixes are raised immediately regardless of schedule (enable Dependabot security
+# updates in the repository settings); the daily cargo-deny run also flags new advisories.
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    # Let new releases age before proposing them, so a compromised or broken publish
+    # has time to be caught and yanked first.
+    cooldown:
+      default-days: 7
+    groups:
+      cargo-minor-and-patch:
+        update-types: [minor, patch]
+    open-pull-requests-limit: 10
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ["*"]

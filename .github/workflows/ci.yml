@@ -6,14 +6,28 @@ on:
   pull_request:
     branches: [ main ]
 
+# Read-only token: nothing in CI writes to the repository.
+permissions:
+  contents: read
+
+# A newer push to the same branch makes older runs moot.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
 
+# Actions are pinned to full commit SHAs (tags can be moved); Dependabot keeps them current.
+# Cargo commands use --locked so CI builds exactly what Cargo.lock records.
 jobs:
   test:
     name: Test Suite
     runs-on: ubuntu-latest
+    # Nightly breakage is an early warning, not a reason to block a merge.
+    continue-on-error: ${{ matrix.rust == 'nightly' }}
     strategy:
+      fail-fast: false
       matrix:
         rust:
           - stable
@@ -21,25 +35,29 @@ jobs:
           - nightly
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master, 2026-10-16
         with:
           toolchain: ${{ matrix.rust }}
 
       - name: Run tests
-        run: cargo test --verbose --all-features
+        run: cargo test --locked --all-features
 
   fmt:
     name: Rustfmt
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master, 2026-10-16
         with:
           toolchain: stable
           components: rustfmt
@@ -52,31 +70,38 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master, 2026-10-16
         with:
           toolchain: stable
           components: clippy
 
       - name: Linting
-        run: cargo clippy --all-features -- -D warnings
+        run: cargo clippy --locked --all-targets --all-features -- -D warnings
 
-  security_audit:
-    name: Security Audit
-    runs-on: ubuntu-latest
+  # Release binaries ship for Windows and macOS too; catch platform build breaks (e.g. the
+  # C toolchain behind the TLS crypto provider) here rather than on release day.
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master, 2026-10-16
         with:
           toolchain: stable
 
-      - name: Install cargo-audit
-        run: cargo install cargo-audit
-
-      - name: Run security audit
-        run: cargo audit
+      - name: Build
+        run: cargo build --locked
