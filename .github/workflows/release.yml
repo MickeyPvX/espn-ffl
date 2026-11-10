@@ -64,11 +64,9 @@ jobs:
               repo: context.repo.repo,
               tag_name: context.ref.replace('refs/tags/', ''),
               name: `Release ${context.ref.replace('refs/tags/', '')}`,
-              body: `## Changes in ${context.ref.replace('refs/tags/', '')}
-
-            See [CHANGELOG.md](https://github.com/${context.repo.owner}/${context.repo.repo}/blob/${context.ref.replace('refs/tags/', '')}/CHANGELOG.md) for details.
-
-            ## Installation
+              // GitHub appends notes generated from the PRs merged since the last tag.
+              generate_release_notes: true,
+              body: `## Installation
 
             Download the appropriate binary for your platform below, or build from source:
             \`\`\`bash
