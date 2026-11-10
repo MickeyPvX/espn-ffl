@@ -26,8 +26,8 @@ pub struct PlayerWeeklyStats {
     pub is_rostered: Option<bool>,
     pub fantasy_team_id: Option<u32>,
     pub fantasy_team_name: Option<String>,
-    pub created_at: u64,
-    pub updated_at: u64,
+    pub created_at: i64,
+    pub updated_at: i64,
 }
 
 impl PlayerWeeklyStats {
@@ -63,8 +63,8 @@ impl PlayerWeeklyStats {
         week: Week,
         projected_points: Option<f64>,
         actual_points: Option<f64>,
-        created_at: u64,
-        updated_at: u64,
+        created_at: i64,
+        updated_at: i64,
     ) -> Self {
         Self {
             player_id,

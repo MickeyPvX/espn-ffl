@@ -44,6 +44,13 @@ pub type CachedPlayerDataRow = (
     Option<String>,
 );
 
+/// Seconds since the Unix epoch, as SQLite's signed 64-bit integer.
+fn unix_now() -> Result<i64> {
+    let secs = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+    // u64 seconds overflow i64 only ~292 billion years from now.
+    Ok(i64::try_from(secs).unwrap_or(i64::MAX))
+}
+
 impl PlayerDatabase {
     /// Insert or update a player's basic information
     pub fn upsert_player(&mut self, player: &Player) -> Result<()> {
@@ -106,7 +113,7 @@ impl PlayerDatabase {
         stats: &PlayerWeeklyStats,
         force_update: bool,
     ) -> Result<bool> {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+        let now = unix_now()?;
 
         if force_update {
             // Force update existing record
@@ -246,7 +253,7 @@ impl PlayerDatabase {
 
     /// Insert or merge weekly stats, preserving existing projected/actual points but updating roster info
     pub fn merge_weekly_stats(&mut self, stats: &PlayerWeeklyStats) -> Result<()> {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+        let now = unix_now()?;
         let mut stmt = self.conn.prepare_cached(Self::MERGE_WEEKLY_STATS_SQL)?;
         stmt.execute(merge_stats_params!(stats, now))?;
         Ok(())
@@ -260,7 +267,7 @@ impl PlayerDatabase {
         &mut self,
         stats: impl IntoIterator<Item = &'a PlayerWeeklyStats>,
     ) -> Result<usize> {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+        let now = unix_now()?;
         let tx = self.conn.transaction()?;
         let mut merged = 0;
         {
@@ -472,7 +479,7 @@ impl PlayerDatabase {
         season: Season,
         week: Week,
     ) -> Result<usize> {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+        let now = unix_now()?;
         let player_to_team = roster_data.create_player_roster_map();
 
         let tx = self.conn.transaction()?;
