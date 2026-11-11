@@ -247,50 +247,58 @@ Players whose game has started are locked in place.
 
 ### `espn-ffl waivers`
 
-The waiver claims to submit this week, in priority order.
+The waiver claims to submit this week, in priority order, each with backups.
 
 ```bash
 espn-ffl waivers --week 10
-espn-ffl waivers --week 10 -p RB -p WR --backups 3
+espn-ffl waivers --week 10 -p TE -p "D/ST" --backups 2
 ```
 
 - `-w, --week <WEEK>` - The week the claims are for (required; normally the upcoming week)
-- `--top <N>` - Maximum claims to list, backups included (default: 10)
-- `--backups <N>` - Backup claims under each claim (default: 2)
+- `--top <N>` - Maximum claims to list (default: 5)
+- `--backups <N>` - Backups under each claim, for when its free agent is taken first (default: 1)
 - `-p, --position <POS>` - Only consider free agents at these positions (repeatable)
 - `--through-week <WEEK>` - Last week counted for a swap's season impact (default: end of the
   regular season)
 - `--team <NAME>` / `--team-id <ID>`, `-l, --league-id`, `-s, --season`, `--refresh`, `--json`
 
 ```text
-Waiver claims · week 10 · Kenny Rogers' Toasters vs Nick's Team
-Win chance with your best current lineup: 45.5%
+Waiver claims · week 10 · Ice Cold Bruschi's vs Da illest
+Win chance with your best current lineup: 53.9%
 
- #  Add (proj)                       Drop (proj)                      Win chance           Season
- 1  Dominic Zvada        K    10.8   Mack Hollins         WR   10.6   45.5% → 47.3% (+1.8)   +2.8
- 2  Jason Sanders        K     9.9   Mack Hollins         WR   10.6   45.5% → 46.1% (+0.6)   +0.9  backup if #1 fails
- 3  Andre Szmyt          K     9.5   Mack Hollins         WR   10.6   45.5% → 45.7% (+0.1)   +0.2  backup if #1 fails
+1. Add Dominic Zvada (K 10.8), drop Calvin Ridley (WR 2.9)
+   53.9% → 67.4% (+13.5)   season +14.9
+   Backup if Dominic Zvada is taken: add Jason Sanders (K 9.9), drop Calvin Ridley
+      53.9% → 66.3% (+12.4)   season +10.7
+
+2. Add AJ Barner (TE 8.7), drop Dallas Goedert (TE 0.0)
+   67.4% → 70.3% (+2.9)   season +2.6
+   Backup if AJ Barner is taken: add Colby Parkinson (TE 8.1), drop Dallas Goedert
+      67.4% → 69.7% (+2.3)   season +0.1
 ```
 
 How the list is built, matching how ESPN processes claims (in your submitted order,
 cancelling any claim whose drop player is already gone):
 
-1. The add/drop that most raises your chance of winning this week's matchup (with no matchup,
-   your projected lineup points). Win chances assume both teams start their best lineup.
-2. Backups for it: the next-best adds **at the same position** with the same drop. If the
-   claim above goes through, its drop player is gone and the backups cancel themselves.
-3. The best next move assuming the claims above succeeded, with its own backups, and so on.
+1. Each claim is the add/drop that most raises your chance of winning this week's matchup
+   (with no matchup, your projected lineup points), assuming the claims above it went through.
+   Win chances assume both teams start their best lineup.
+2. Its backups are the next-best adds **with the same drop**, each assuming the adds above it
+   were taken by teams with higher priority. Because they drop the same player, ESPN cancels
+   them once one of them goes through.
+3. Submit claim 1, its backups, claim 2, its backups, and so on.
 
 Guard rails:
 
 - **Season**: projected starting-lineup points the swap gains through `--through-week`. A swap
   that would cost season points is never suggested, so a one-week bump never comes from
-  dropping someone you need later. Among equally good drops, the player with the least
-  rest-of-season value goes first.
-- **Injured players (Q/D/O/IR) are never suggested as drops.** ESPN projects them at zero
-  while they are out, which says nothing about their value when they return.
-- Locked players (game started) are never dropped. Bench depth as injury insurance is not
-  valued, so check that a suggested drop isn't your only backup at a thin position.
+  dropping someone you need later (or from leaving a later bye week uncovered).
+- **Drops**: like-for-like swaps are preferred when they're just as good this week; otherwise
+  the player with the least rest-of-season value goes first. Injured players (Q/D/O/IR),
+  players on bye this week and locked players are never suggested as drops.
+- **Adds**: injured free agents, questionable included, are never suggested.
+- Bench depth as injury insurance is not valued, so check that a suggested drop isn't your
+  only backup at a thin position.
 
 "Free agent" means on no roster in your league; your waiver priority isn't modelled.
 
@@ -357,8 +365,8 @@ espn-ffl matchup --week 10
 # Waiver claims to submit this week, in priority order
 espn-ffl waivers --week 10
 
-# Only RB claims, with three backups each, counting season impact through the playoffs
-espn-ffl waivers --week 10 -p RB --backups 3 --through-week 17
+# Only RB claims, with two backups each, counting season impact through the playoffs
+espn-ffl waivers --week 10 -p RB --backups 2 --through-week 17
 ```
 
 ### Projection Analysis

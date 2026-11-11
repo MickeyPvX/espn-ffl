@@ -17,7 +17,7 @@ use crate::{
     espn::{
         cache_settings::load_or_fetch_league_settings,
         compute::{
-            build_scoring_index, compute_points_for_week, projected_weeks, select_season_stats,
+            build_scoring_index, compute_points_for_week, infer_bye_week, select_season_stats,
         },
         draft::{get_draft_detail, DraftResponse},
         http::get_draft_pool,
@@ -1251,23 +1251,6 @@ fn slot_aware_match(filter: Position, position: Position) -> bool {
     }
 }
 
-/// Infer a player's bye week from the gap in ESPN's weekly projections.
-///
-/// ESPN emits a projection block for every week of the season but leaves it empty on the
-/// bye, so the missing week in an otherwise complete run is the bye.
-fn infer_bye_week(player_value: &serde_json::Value, season: u16) -> Option<u16> {
-    let weeks = projected_weeks(player_value, season);
-    if weeks.is_empty() {
-        return None;
-    }
-
-    let first = *weeks.first()?;
-    let last = *weeks.last()?;
-    let present: HashSet<u16> = weeks.into_iter().collect();
-
-    (first..=last).find(|w| !present.contains(w))
-}
-
 /// Picks tracked outside ESPN's feed, from a file or typed in interactively.
 #[derive(Debug, Default, Clone)]
 struct FilePicks {
@@ -1843,37 +1826,6 @@ fn recommendations_text(recs: &[Recommendation], live: Option<&LiveDraftState>) 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn infer_bye_week_finds_the_missing_week() {
-        // Weeks 1-5 projected, week 3 empty => bye in week 3.
-        let stats: Vec<serde_json::Value> = (1..=5)
-            .map(|w| {
-                let inner = if w == 3 {
-                    json!({})
-                } else {
-                    json!({"53": 5.0})
-                };
-                json!({
-                    "seasonId": 2026,
-                    "scoringPeriodId": w,
-                    "statSourceId": 1,
-                    "statSplitTypeId": 1,
-                    "stats": inner,
-                })
-            })
-            .collect();
-
-        let player = json!({ "stats": stats });
-        assert_eq!(infer_bye_week(&player, 2026), Some(3));
-    }
-
-    #[test]
-    fn infer_bye_week_is_none_without_projections() {
-        let player = json!({ "stats": [] });
-        assert_eq!(infer_bye_week(&player, 2026), None);
-    }
 
     #[test]
     fn slot_aware_match_treats_flex_as_rb_wr_te() {

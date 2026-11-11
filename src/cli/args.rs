@@ -271,11 +271,12 @@ pub enum Commands {
 
     /// Waiver claims to submit this week, in priority order.
     ///
-    /// Lists add/drop swaps ordered by how much they raise your chance of winning this
-    /// week's matchup, each followed by backups that use the same drop (ESPN cancels a claim
-    /// whose drop player is already gone, so a backup only goes through if the claims above
-    /// it failed). Swaps that would cost projected starting-lineup points over the rest of
-    /// the season are never suggested.
+    /// Each claim is the add/drop that most raises your chance of winning this week's
+    /// matchup (assuming the claims above it went through), with a backup in case its free
+    /// agent is taken first. The backup drops the same player, so ESPN cancels it if the claim
+    /// succeeds. Swaps that would cost projected starting-lineup points over the rest of the
+    /// season are never suggested, nor are drops of injured or on-bye players, or adds of
+    /// injured free agents (questionable included).
     Waivers {
         /// League ID (or set `ESPN_FFL_LEAGUE_ID` env var).
         #[clap(long, short)]
@@ -298,12 +299,12 @@ pub enum Commands {
         #[clap(short = 'p', long = "position", value_parser = clap::value_parser!(Position))]
         positions: Option<Vec<Position>>,
 
-        /// Maximum number of claims to list, backups included.
-        #[clap(long, default_value_t = 10)]
+        /// Maximum number of claims to list.
+        #[clap(long, default_value_t = 5)]
         top: usize,
 
-        /// Backup claims to list under each claim.
-        #[clap(long, default_value_t = 2)]
+        /// Backup claims under each claim, for when its free agent is taken first.
+        #[clap(long, default_value_t = 1)]
         backups: usize,
 
         /// Your fantasy team name (partial match). Defaults to the team owned by ESPN_SWID.

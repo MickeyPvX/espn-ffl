@@ -1,15 +1,15 @@
 //! Waiver command: the claims to submit this week, in priority order.
 //!
-//! ESPN processes a team's waiver claims in the order submitted, and cancels a claim whose
-//! drop player is already gone. So the plan is a list: the add/drop that most improves your
-//! chance of winning this week's matchup, then backups for it (other adds with the same drop,
-//! which only go through if the claims above them failed), then the best next move assuming
-//! the first went through, and so on.
+//! Each claim is the add/drop that most improves your chance of winning this week's matchup,
+//! assuming the claims above it went through, plus a backup in case its free agent is taken
+//! by another team first. A backup drops the same player as its claim: ESPN processes claims
+//! in order and cancels one whose drop player is already gone, so the backup only goes
+//! through if the claim above it failed.
 //!
-//! A swap is only offered if it does not cost projected starting-lineup points over the rest
-//! of the regular season, so a one-week gain never comes from dropping a player you need.
-//! Injured players are never suggested as drops: ESPN projects them at zero while they are
-//! out, which says nothing about their value once they return.
+//! Guard rails: a swap is never offered if it would cost projected starting-lineup points over
+//! the rest of the regular season; injured players and players on bye are never suggested as
+//! drops (their projections this week say nothing about their value); and injured free
+//! agents, questionable included, are never suggested as adds.
 
 use std::collections::{HashMap, HashSet};
 
@@ -18,6 +18,7 @@ use serde::Serialize;
 use crate::{
     cli::types::position::{SLOT_BENCH, SLOT_IR},
     espn::{
+        compute::infer_bye_week,
         http::{get_player_data, PlayerDataRequest},
         matchup::{best_lineup_for_matchup, max_projection_lineup, LineupPlayer},
         types::Player,
@@ -33,6 +34,9 @@ const SHORTLIST_PER_POSITION: usize = 12;
 /// Rest-of-season starting-lineup points a swap may cost and still be offered.
 const SEASON_TOLERANCE: f64 = 0.5;
 
+/// This-week scores closer than this are treated as equal when choosing a drop.
+const WEEK_TIE: f64 = 1e-6;
+
 /// Parameters for the waivers command.
 #[derive(Debug, Clone)]
 pub struct WaiversParams {
@@ -42,9 +46,9 @@ pub struct WaiversParams {
     pub team: Option<String>,
     pub team_id: Option<u32>,
     pub positions: Option<Vec<Position>>,
-    /// Maximum number of claims (including backups) to list.
+    /// Maximum number of claims to list.
     pub top: usize,
-    /// Backup claims to list under each claim.
+    /// Backups to list under each claim.
     pub backups: usize,
     /// Last week counted for the season column; defaults to the end of the regular season.
     pub through_week: Option<Week>,
@@ -74,110 +78,122 @@ struct PlannedClaim {
     drop: Option<Member>,
     before: RosterScore,
     after: RosterScore,
-    /// Index (in the plan) of the claim this one backs up.
-    backup_for: Option<usize>,
+    /// Fallback adds with the same drop, best first: each assumes `add` and the backups
+    /// above it were taken by other teams.
+    backups: Vec<(usize, RosterScore)>,
 }
 
-/// Build the claim list.
-///
-/// `score` evaluates a roster; `droppable` says which members may be cut (not locked);
-/// `value` breaks ties between equally good drops (the lowest-value player goes first);
-/// `interchangeable` says whether one free agent can stand in for another (same position),
-/// which is what makes an add a backup rather than a separate move;
-/// `open_spots` is how many claims can be made without dropping anyone. Only swaps that
-/// raise this week's objective by at least `min_gain` are listed.
-#[allow(clippy::too_many_arguments)]
+/// What the planner needs to know about the league, roster and free agents.
+trait ClaimModel {
+    fn free_agents(&self) -> usize;
+    /// Whether this member may be cut (not locked, injured or on bye).
+    fn droppable(&self, member: Member) -> bool;
+    /// Long-term value, to cut the weakest of otherwise equal drops.
+    fn value(&self, member: Member) -> f64;
+    /// Whether a free agent plays the same position as a roster member (like-for-like swap).
+    fn same_position(&self, add: usize, member: Member) -> bool;
+    fn score(&self, roster: &[Member]) -> RosterScore;
+}
+
+/// Order two candidate results: better this week first, ties within [`WEEK_TIE`].
+fn cmp_week(a: f64, b: f64) -> std::cmp::Ordering {
+    if (a - b).abs() < WEEK_TIE {
+        std::cmp::Ordering::Equal
+    } else {
+        a.total_cmp(&b)
+    }
+}
+
+/// Build the claim list: up to `max_claims` claims, each raising this week's objective by at
+/// least `min_gain` from the roster left by the claims above it, with up to `backups`
+/// fallback adds each.
 fn plan_claims(
+    model: &impl ClaimModel,
     mut roster: Vec<Member>,
-    free_agents: usize,
     mut open_spots: usize,
-    droppable: impl Fn(Member) -> bool,
-    value: impl Fn(Member) -> f64,
-    interchangeable: impl Fn(usize, usize) -> bool,
-    mut score: impl FnMut(&[Member]) -> RosterScore,
     min_gain: f64,
     max_claims: usize,
     backups: usize,
 ) -> Vec<PlannedClaim> {
     let mut plan: Vec<PlannedClaim> = Vec::new();
-    let mut current = score(&roster);
+    let mut current = model.score(&roster);
+
+    // Result of adding `add` and dropping `drop` from the current roster, if the swap is
+    // allowed: it must not cost season points and must help this week.
+    let swap = |roster: &[Member], current: RosterScore, add: usize, drop: Option<Member>| {
+        let mut next: Vec<Member> = roster
+            .iter()
+            .copied()
+            .filter(|m| Some(*m) != drop)
+            .collect();
+        next.push(Member::Free(add));
+        let after = model.score(&next);
+        let allowed = after.season >= current.season - SEASON_TOLERANCE
+            && after.week - current.week >= min_gain;
+        allowed.then_some(after)
+    };
 
     while plan.len() < max_claims {
-        // Every legal swap from here, with the best drop for each free agent.
-        let mut best_per_add: Vec<(usize, Option<Member>, RosterScore)> = Vec::new();
-        for add in 0..free_agents {
-            if roster.contains(&Member::Free(add)) {
-                continue;
-            }
-            let mut drops: Vec<Option<Member>> = roster
-                .iter()
-                .copied()
-                .filter(|m| droppable(*m))
-                .map(Some)
-                .collect();
-            if open_spots > 0 {
-                drops.push(None);
-            }
-            let best = drops
-                .into_iter()
-                .filter_map(|drop| {
-                    let mut next: Vec<Member> = roster
-                        .iter()
-                        .copied()
-                        .filter(|m| Some(*m) != drop)
-                        .collect();
-                    next.push(Member::Free(add));
-                    let after = score(&next);
-                    (after.season >= current.season - SEASON_TOLERANCE).then_some((drop, after))
-                })
-                .max_by(|(da, a), (db, b)| {
-                    // Best this week; then most season value kept; then cut the weakest.
-                    let cut = |d: &Option<Member>| d.map(&value).unwrap_or(f64::NEG_INFINITY);
-                    a.week
-                        .total_cmp(&b.week)
-                        .then(a.season.total_cmp(&b.season))
-                        .then(cut(db).total_cmp(&cut(da)))
-                });
-            if let Some((drop, after)) = best {
-                if after.week - current.week >= min_gain {
-                    best_per_add.push((add, drop, after));
-                }
-            }
+        let available: Vec<usize> = (0..model.free_agents())
+            .filter(|a| !roster.contains(&Member::Free(*a)))
+            .collect();
+        let mut drops: Vec<Option<Member>> = roster
+            .iter()
+            .copied()
+            .filter(|m| model.droppable(*m))
+            .map(Some)
+            .collect();
+        if open_spots > 0 {
+            drops.push(None);
         }
-        best_per_add.sort_by(|a, b| {
-            b.2.week
-                .total_cmp(&a.2.week)
-                .then(b.2.season.total_cmp(&a.2.season))
-        });
 
-        let Some(&(add, drop, after)) = best_per_add.first() else {
+        // Each free agent's best swap. Among drops that are equally good this week, prefer a
+        // like-for-like swap, then the one that keeps the most season value, then the
+        // weakest player.
+        let rank_drop = |add: usize, d: &Option<Member>, after: &RosterScore| {
+            let same = d.is_some_and(|m| model.same_position(add, m));
+            let cut = d.map(|m| -model.value(m)).unwrap_or(f64::INFINITY);
+            (after.week, same, after.season, cut)
+        };
+        let best = available
+            .iter()
+            .filter_map(|&add| {
+                drops
+                    .iter()
+                    .filter_map(|&d| swap(&roster, current, add, d).map(|after| (add, d, after)))
+                    .max_by(|x, y| {
+                        let (wa, sa, ssa, ca) = rank_drop(add, &x.1, &x.2);
+                        let (wb, sb, ssb, cb) = rank_drop(add, &y.1, &y.2);
+                        cmp_week(wa, wb)
+                            .then(sa.cmp(&sb))
+                            .then(ssa.total_cmp(&ssb))
+                            .then(ca.total_cmp(&cb))
+                    })
+            })
+            .max_by(|x, y| cmp_week(x.2.week, y.2.week).then(x.2.season.total_cmp(&y.2.season)));
+
+        let Some((add, drop, after)) = best else {
             break;
         };
-        let primary = plan.len();
+
+        // Backups: the next-best adds with the same drop, for when the adds above them are
+        // claimed first by teams with higher waiver priority.
+        let mut fallback: Vec<(usize, RosterScore)> = available
+            .iter()
+            .filter(|&&b| b != add)
+            .filter_map(|&b| swap(&roster, current, b, drop).map(|after| (b, after)))
+            .collect();
+        fallback
+            .sort_by(|x, y| cmp_week(y.1.week, x.1.week).then(y.1.season.total_cmp(&x.1.season)));
+        fallback.truncate(backups);
+
         plan.push(PlannedClaim {
             add,
             drop,
             before: current,
             after,
-            backup_for: None,
+            backups: fallback,
         });
-
-        // Backups: alternatives at the same position whose best move uses the same drop. They
-        // fail automatically once the primary succeeds, so they cost nothing to submit.
-        for &(b_add, b_drop, b_after) in best_per_add.iter().skip(1) {
-            if plan.len() >= max_claims || plan.len() - primary > backups {
-                break;
-            }
-            if b_drop == drop && drop.is_some() && interchangeable(add, b_add) {
-                plan.push(PlannedClaim {
-                    add: b_add,
-                    drop,
-                    before: current,
-                    after: b_after,
-                    backup_for: Some(primary),
-                });
-            }
-        }
 
         // Plan the next claim as if this one went through.
         match drop {
@@ -194,11 +210,71 @@ fn plan_claims(
 struct Evaluated<'a> {
     player: &'a Player,
     weekly: Vec<LineupPlayer>,
+    on_bye: bool,
 }
 
 impl Evaluated<'_> {
     fn total(&self) -> f64 {
         self.weekly.iter().map(|p| p.mean).sum()
+    }
+}
+
+/// The real league: your roster, the free-agent shortlist, and this week's opponent.
+struct League<'a> {
+    mine: Vec<Evaluated<'a>>,
+    free: Vec<Evaluated<'a>>,
+    slots: &'a std::collections::BTreeMap<u8, u32>,
+    /// Opponent's best lineup `(mean, variance)`; `None` without a matchup.
+    opponent: Option<(f64, f64)>,
+}
+
+impl League<'_> {
+    fn get(&self, m: Member) -> &Evaluated<'_> {
+        match m {
+            Member::Mine(i) => &self.mine[i],
+            Member::Free(i) => &self.free[i],
+        }
+    }
+}
+
+impl ClaimModel for League<'_> {
+    fn free_agents(&self) -> usize {
+        self.free.len()
+    }
+
+    fn droppable(&self, m: Member) -> bool {
+        let e = self.get(m);
+        let now = &e.weekly[0];
+        // Injured players are projected at zero while out, which says nothing about their
+        // value once back; a bye says nothing about the rest of the season either.
+        !now.locked && now.injury_status.is_none() && !e.on_bye
+    }
+
+    fn value(&self, m: Member) -> f64 {
+        self.get(m).total()
+    }
+
+    fn same_position(&self, add: usize, m: Member) -> bool {
+        self.free[add].weekly[0].position == self.get(m).weekly[0].position
+    }
+
+    fn score(&self, roster: &[Member]) -> RosterScore {
+        let week_players = |w: usize| -> Vec<LineupPlayer> {
+            roster
+                .iter()
+                .map(|m| self.get(*m).weekly[w].clone())
+                .collect()
+        };
+        let now = week_players(0);
+        let week = match self.opponent {
+            Some((mean, var)) => best_lineup_for_matchup(&now, self.slots, mean, var).1,
+            None => max_projection_lineup(&now, self.slots).mean,
+        };
+        let weeks = self.mine.first().map_or(1, |e| e.weekly.len());
+        let season = (0..weeks)
+            .map(|w| max_projection_lineup(&week_players(w), self.slots).mean)
+            .sum();
+        RosterScore { week, season }
     }
 }
 
@@ -210,7 +286,6 @@ struct ClaimPlayer {
     position: String,
     /// ESPN's projection this week.
     projection: f64,
-    injury_status: Option<String>,
 }
 
 impl ClaimPlayer {
@@ -221,15 +296,22 @@ impl ClaimPlayer {
             name: now.name.clone(),
             position: now.position.to_string(),
             projection: now.mean,
-            injury_status: now.injury_status.clone(),
         }
     }
+}
+
+/// The backup for a claim: same drop, different add.
+#[derive(Debug, Serialize)]
+struct Backup {
+    add: ClaimPlayer,
+    after: f64,
+    season_change: f64,
 }
 
 /// One waiver claim to submit.
 #[derive(Debug, Serialize)]
 struct Claim {
-    /// Priority order to submit the claim in, starting at 1.
+    /// Priority order, starting at 1. Submit each claim followed by its backup.
     order: usize,
     add: ClaimPlayer,
     /// `None` when the roster has an open spot.
@@ -239,8 +321,8 @@ struct Claim {
     after: f64,
     /// Projected starting-lineup points gained through `through_week`.
     season_change: f64,
-    /// The claim (by `order`) this one backs up.
-    backup_for: Option<usize>,
+    /// Fallbacks in order; each assumes the adds above it were taken.
+    backups: Vec<Backup>,
 }
 
 #[derive(Debug, Serialize)]
@@ -251,6 +333,8 @@ struct WaiverReport {
     team: String,
     /// `None` when there is no matchup this week; claims are then ranked by projected points.
     opponent: Option<String>,
+    /// Backups requested per claim.
+    backups_requested: usize,
     claims: Vec<Claim>,
 }
 
@@ -293,11 +377,16 @@ pub async fn handle_waivers(params: WaiversParams) -> Result<()> {
     let pool: Vec<Player> = serde_json::from_value(raw)?;
     let by_id: HashMap<i64, &Player> = pool.iter().map(|p| (p.id, p)).collect();
 
-    let to_eval = |player: &Player| -> Option<Vec<LineupPlayer>> {
-        weeks
+    let evaluate = |player: &'_ Player| -> Option<(Vec<LineupPlayer>, bool)> {
+        let weekly: Vec<LineupPlayer> = weeks
             .iter()
             .map(|&w| ctx.lineup_player(player, SLOT_BENCH, false, w))
-            .collect()
+            .collect::<Option<_>>()?;
+        let on_bye = serde_json::to_value(player)
+            .ok()
+            .and_then(|v| infer_bye_week(&v, ctx.season.as_u16()))
+            == Some(ctx.week.as_u16());
+        Some((weekly, on_bye))
     };
 
     // My roster: IR stashes stay put; everyone else is a lineup option and a drop candidate.
@@ -312,9 +401,13 @@ pub async fn handle_waivers(params: WaiversParams) -> Result<()> {
         .keys()
         .filter_map(|id| {
             let player = by_id.get(id).copied()?;
-            let mut weekly = to_eval(player)?;
+            let (mut weekly, on_bye) = evaluate(player)?;
             weekly[0] = this_week[id].clone();
-            Some(Evaluated { player, weekly })
+            Some(Evaluated {
+                player,
+                weekly,
+                on_bye,
+            })
         })
         .collect();
 
@@ -328,7 +421,7 @@ pub async fn handle_waivers(params: WaiversParams) -> Result<()> {
         .sum();
     let open_spots = roster_spots.saturating_sub(mine.len());
 
-    // Free agents: anyone on no roster, at a position this league starts.
+    // Free agents: healthy players on no roster, at a position this league starts.
     let rostered: HashSet<i64> = ctx
         .league
         .teams
@@ -337,7 +430,7 @@ pub async fn handle_waivers(params: WaiversParams) -> Result<()> {
         .map(|e| e.player_id)
         .collect();
     let startable = ctx.settings.rosterable_positions();
-    let mut free_agents: Vec<Evaluated> = pool
+    let mut free: Vec<Evaluated> = pool
         .iter()
         .filter(|p| !rostered.contains(&p.id))
         .filter_map(|player| {
@@ -347,24 +440,28 @@ pub async fn handle_waivers(params: WaiversParams) -> Result<()> {
                 Some(filter) => filter.contains(&position),
                 None => startable.contains(&position),
             };
-            wanted.then(|| {
-                Some(Evaluated {
-                    player,
-                    weekly: to_eval(player)?,
-                })
-            })?
+            if !wanted {
+                return None;
+            }
+            let (weekly, on_bye) = evaluate(player)?;
+            Some(Evaluated {
+                player,
+                weekly,
+                on_bye,
+            })
         })
-        .filter(|e| e.weekly[0].mean > 0.0 || e.total() > 0.0)
+        // Any injury designation, questionable included, rules a free agent out.
+        .filter(|e| e.weekly[0].injury_status.is_none() && e.weekly[0].mean > 0.0)
         .collect();
     // Shortlist by this week's projection, then by the rest of the season.
-    free_agents.sort_by(|a, b| {
+    free.sort_by(|a, b| {
         b.weekly[0]
             .mean
             .total_cmp(&a.weekly[0].mean)
             .then(b.total().total_cmp(&a.total()))
     });
     let mut per_position: HashMap<Position, usize> = HashMap::new();
-    free_agents.retain(|e| {
+    free.retain(|e| {
         let n = per_position.entry(e.weekly[0].position).or_default();
         *n += 1;
         *n <= SHORTLIST_PER_POSITION
@@ -373,54 +470,25 @@ pub async fn handle_waivers(params: WaiversParams) -> Result<()> {
     let opponent = ctx.opponent().ok();
     let opponent_lineup = opponent.map(|opp| {
         let theirs = ctx.roster_players(opp);
-        max_projection_lineup(&theirs, &ctx.slots)
+        let lineup = max_projection_lineup(&theirs, &ctx.slots);
+        (lineup.mean, lineup.variance)
     });
 
-    let evaluated = |m: Member| -> &Evaluated {
-        match m {
-            Member::Mine(i) => &mine[i],
-            Member::Free(i) => &free_agents[i],
-        }
+    let league = League {
+        mine,
+        free,
+        slots: &ctx.slots,
+        opponent: opponent_lineup,
     };
-    let score = |roster: &[Member]| -> RosterScore {
-        let now: Vec<LineupPlayer> = roster
-            .iter()
-            .map(|m| evaluated(*m).weekly[0].clone())
-            .collect();
-        let week = match &opponent_lineup {
-            Some(opp) => best_lineup_for_matchup(&now, &ctx.slots, opp.mean, opp.variance).1,
-            None => max_projection_lineup(&now, &ctx.slots).mean,
-        };
-        let season = (0..weeks.len())
-            .map(|w| {
-                let players: Vec<LineupPlayer> = roster
-                    .iter()
-                    .map(|m| evaluated(*m).weekly[w].clone())
-                    .collect();
-                max_projection_lineup(&players, &ctx.slots).mean
-            })
-            .sum();
-        RosterScore { week, season }
-    };
-
     let min_gain = if opponent_lineup.is_some() {
         0.001 // a tenth of a percentage point
     } else {
         0.1 // projected points
     };
     let plan = plan_claims(
-        (0..mine.len()).map(Member::Mine).collect(),
-        free_agents.len(),
+        &league,
+        (0..league.mine.len()).map(Member::Mine).collect(),
         open_spots,
-        // Never cut a locked player, or an injured one: ESPN projects injured players at zero
-        // for the weeks they miss, so projections alone would make a star look worthless.
-        |m| {
-            let now = &evaluated(m).weekly[0];
-            !now.locked && now.injury_status.is_none()
-        },
-        |m| evaluated(m).total(),
-        |a, b| free_agents[a].weekly[0].position == free_agents[b].weekly[0].position,
-        score,
         min_gain,
         params.top,
         params.backups,
@@ -431,12 +499,20 @@ pub async fn handle_waivers(params: WaiversParams) -> Result<()> {
         .enumerate()
         .map(|(i, c)| Claim {
             order: i + 1,
-            add: ClaimPlayer::new(&free_agents[c.add]),
-            drop: c.drop.map(|d| ClaimPlayer::new(evaluated(d))),
+            add: ClaimPlayer::new(&league.free[c.add]),
+            drop: c.drop.map(|d| ClaimPlayer::new(league.get(d))),
             before: c.before.week,
             after: c.after.week,
             season_change: c.after.season - c.before.season,
-            backup_for: c.backup_for.map(|b| b + 1),
+            backups: c
+                .backups
+                .iter()
+                .map(|&(b, after)| Backup {
+                    add: ClaimPlayer::new(&league.free[b]),
+                    after: after.week,
+                    season_change: after.season - c.before.season,
+                })
+                .collect(),
         })
         .collect();
 
@@ -446,6 +522,7 @@ pub async fn handle_waivers(params: WaiversParams) -> Result<()> {
         through_week: through,
         team: me.display_name(),
         opponent: opponent.map(|o| o.display_name()),
+        backups_requested: params.backups,
         claims,
     };
 
@@ -457,18 +534,8 @@ pub async fn handle_waivers(params: WaiversParams) -> Result<()> {
     Ok(())
 }
 
-fn player_cell(p: &ClaimPlayer) -> String {
-    let status = p
-        .injury_status
-        .as_deref()
-        .map(|s| format!(" [{}]", s.chars().next().unwrap_or('?')))
-        .unwrap_or_default();
-    format!(
-        "{:<20} {:<4} {:>4.1}{status}",
-        p.name.chars().take(20).collect::<String>(),
-        p.position,
-        p.projection
-    )
+fn player_text(p: &ClaimPlayer) -> String {
+    format!("{} ({} {:.1})", p.name, p.position, p.projection)
 }
 
 /// Render the report as text.
@@ -478,8 +545,16 @@ fn report_text(r: &WaiverReport) -> String {
         if has_matchup {
             format!("{:.1}%", v * 100.0)
         } else {
-            format!("{v:.1}")
+            format!("{v:.1} pts")
         }
+    };
+    let change = |before: f64, after: f64| {
+        let delta = if has_matchup {
+            (after - before) * 100.0
+        } else {
+            after - before
+        };
+        format!("{} → {} ({delta:+.1})", fmt_score(before), fmt_score(after))
     };
 
     let mut out = match &r.opponent {
@@ -490,7 +565,8 @@ fn report_text(r: &WaiverReport) -> String {
         ),
     };
     let Some(first) = r.claims.first() else {
-        out += "\nNo free agent improves your team this week without costing you later.\n";
+        out +=
+            "\nNo healthy free agent improves your lineup this week without costing you later.\n";
         return out;
     };
     out += &format!(
@@ -503,45 +579,49 @@ fn report_text(r: &WaiverReport) -> String {
         fmt_score(first.before)
     );
 
-    out += &format!(
-        " #  {:<32} {:<32} {:<20} {:>6}\n",
-        "Add (proj)",
-        "Drop (proj)",
-        if has_matchup { "Win chance" } else { "Points" },
-        "Season"
-    );
     for c in &r.claims {
-        let change = if has_matchup {
-            format!("{:+.1}", (c.after - c.before) * 100.0)
-        } else {
-            format!("{:+.1}", c.after - c.before)
-        };
         let drop = c
             .drop
             .as_ref()
-            .map(player_cell)
-            .unwrap_or_else(|| "(open roster spot)".to_string());
-        let note = c
-            .backup_for
-            .map(|b| format!("  backup if #{b} fails"))
-            .unwrap_or_default();
+            .map(|d| format!("drop {}", player_text(d)))
+            .unwrap_or_else(|| "use your open roster spot".to_string());
         out += &format!(
-            "{:>2}  {:<32} {:<32} {:<20} {:>+6.1}{note}\n",
+            "{}. Add {}, {}\n   {}   season {:+.1}\n",
             c.order,
-            player_cell(&c.add),
+            player_text(&c.add),
             drop,
-            format!(
-                "{} → {} ({change})",
-                fmt_score(c.before),
-                fmt_score(c.after)
-            ),
-            c.season_change,
+            change(c.before, c.after),
+            c.season_change
         );
+        let drop_name = match &c.drop {
+            Some(d) => format!("drop {}", d.name),
+            None => "use your open roster spot".to_string(),
+        };
+        let mut taken = vec![c.add.name.clone()];
+        for b in &c.backups {
+            out += &format!(
+                "   Backup if {} {} taken: add {}, {}\n      {}   season {:+.1}\n",
+                taken.join(" and "),
+                if taken.len() == 1 { "is" } else { "are" },
+                player_text(&b.add),
+                drop_name,
+                change(c.before, b.after),
+                b.season_change
+            );
+            taken.push(b.add.name.clone());
+        }
+        if c.backups.is_empty() && r.backups_requested > 0 {
+            out += "   No backup: every other option either doesn't help this week or would cost projected\n   points later (often a bye week this drop would leave uncovered).\n";
+        }
+        out += "\n";
     }
+
     out += &format!(
-        "\nSubmit in this order. A claim whose drop player is already gone is cancelled, so a\n\
-         backup only goes through if the claims above it failed; later claims assume the ones\n\
-         above them succeeded. Season: projected starting-lineup points gained through week {}.\n",
+        "Submit in this order: claim 1, its backups, claim 2, its backups, and so on. Backups drop\n\
+         the same player as their claim, so ESPN cancels them once one goes through. Each claim\n\
+         assumes the ones above it succeeded. Season: projected starting-lineup points gained\n\
+         through week {}. Injured and on-bye players are never suggested as drops; injured\n\
+         free agents (questionable included) are never suggested as adds.\n",
         r.through_week
     );
     out
@@ -551,26 +631,50 @@ fn report_text(r: &WaiverReport) -> String {
 mod tests {
     use super::*;
 
-    /// Toy model: each member has a value; this week's score is the sum of the best
-    /// `starters` values, and the season score is the same over the long-term values.
+    /// Toy model: each member has `(this week, season)` values and a position; a roster
+    /// scores the sum of its best `starters` values in each.
     struct Toy {
-        mine: Vec<(f64, f64)>,
-        free: Vec<(f64, f64)>,
+        mine: Vec<(f64, f64, u8)>,
+        free: Vec<(f64, f64, u8)>,
         starters: usize,
-        /// Position group per free agent; backups must share one.
-        groups: Vec<u8>,
+        undroppable: Vec<usize>,
     }
 
     impl Toy {
-        fn get(&self, m: Member) -> (f64, f64) {
+        fn get(&self, m: Member) -> (f64, f64, u8) {
             match m {
                 Member::Mine(i) => self.mine[i],
                 Member::Free(i) => self.free[i],
             }
         }
 
+        fn plan(&self, open: usize, top: usize) -> Vec<PlannedClaim> {
+            plan_claims(
+                self,
+                (0..self.mine.len()).map(Member::Mine).collect(),
+                open,
+                0.1,
+                top,
+                2,
+            )
+        }
+    }
+
+    impl ClaimModel for Toy {
+        fn free_agents(&self) -> usize {
+            self.free.len()
+        }
+        fn droppable(&self, m: Member) -> bool {
+            !matches!(m, Member::Mine(i) if self.undroppable.contains(&i))
+        }
+        fn value(&self, m: Member) -> f64 {
+            self.get(m).1
+        }
+        fn same_position(&self, add: usize, m: Member) -> bool {
+            self.free[add].2 == self.get(m).2
+        }
         fn score(&self, roster: &[Member]) -> RosterScore {
-            let top = |pick: fn((f64, f64)) -> f64| {
+            let top = |pick: fn((f64, f64, u8)) -> f64| {
                 let mut v: Vec<f64> = roster.iter().map(|m| pick(self.get(*m))).collect();
                 v.sort_by(|a, b| b.total_cmp(a));
                 v.iter().take(self.starters).sum::<f64>()
@@ -580,102 +684,86 @@ mod tests {
                 season: top(|v| v.1),
             }
         }
-
-        fn plan(&self, open: usize, top: usize, backups: usize) -> Vec<PlannedClaim> {
-            plan_claims(
-                (0..self.mine.len()).map(Member::Mine).collect(),
-                self.free.len(),
-                open,
-                |_| true,
-                |m| self.get(m).1,
-                |a, b| self.groups.get(a) == self.groups.get(b),
-                |r| self.score(r),
-                0.1,
-                top,
-                backups,
-            )
-        }
     }
 
     #[test]
-    fn claims_are_ordered_by_gain_with_backups_sharing_the_drop() {
-        // Two starters. Member 1 is a weak starter (5 this week); member 2 never starts.
+    fn best_claim_first_with_a_backup_that_shares_its_drop() {
+        // Two starters; member 2 never starts.
         let toy = Toy {
-            mine: vec![(20.0, 60.0), (5.0, 20.0), (1.0, 1.0)],
-            free: vec![(12.0, 12.0), (10.0, 10.0), (8.0, 8.0)],
+            mine: vec![(20.0, 60.0, 1), (5.0, 20.0, 2), (1.0, 1.0, 3)],
+            // Free agent 2 does not beat the starter it would replace, so it is no backup.
+            free: vec![
+                (12.0, 12.0, 4),
+                (10.0, 10.0, 4),
+                (4.0, 4.0, 4),
+                (8.0, 8.0, 4),
+            ],
             starters: 2,
-            groups: vec![],
+            undroppable: vec![],
         };
-        let plan = toy.plan(0, 10, 2);
-        // Best: add the 12 for the useless bench player (keeps the season-relevant one).
+        let plan = toy.plan(0, 5);
+        assert_eq!(plan.len(), 1);
         assert_eq!(plan[0].add, 0);
         assert_eq!(plan[0].drop, Some(Member::Mine(2)));
-        assert_eq!(plan[0].backup_for, None);
-        // Backups reuse the same drop, best first.
-        assert_eq!((plan[1].add, plan[1].backup_for), (1, Some(0)));
-        assert_eq!((plan[2].add, plan[2].backup_for), (2, Some(0)));
-        assert_eq!(plan[1].drop, Some(Member::Mine(2)));
-        // Nothing else improves this week once the 12 is in, so the plan ends.
-        assert_eq!(plan.len(), 3);
+        // If free agent 0 is taken, take free agent 1 with the same drop.
+        let backups: Vec<usize> = plan[0].backups.iter().map(|b| b.0).collect();
+        assert_eq!(backups, vec![1, 3]);
+    }
+
+    #[test]
+    fn prefers_a_like_for_like_drop_when_this_week_is_equal() {
+        // One starter. A starting kicker (pos 9), and a bench WR (pos 3) with more season
+        // value than the kicker keeps once replaced; either drop gives the same week.
+        let toy = Toy {
+            mine: vec![(8.0, 8.0, 9), (1.0, 2.0, 3)],
+            free: vec![(10.0, 10.0, 9)],
+            starters: 1,
+            undroppable: vec![],
+        };
+        let plan = toy.plan(0, 5);
+        assert_eq!(plan[0].drop, Some(Member::Mine(0)));
     }
 
     #[test]
     fn never_trades_season_value_for_a_one_week_bump() {
-        // Member 1 is on bye this week (0) but is a season starter (50).
+        // Member 1 scores nothing this week but is a season starter.
         let toy = Toy {
-            mine: vec![(20.0, 60.0), (0.0, 50.0)],
-            free: vec![(15.0, 15.0)],
+            mine: vec![(20.0, 60.0, 1), (0.0, 50.0, 2)],
+            free: vec![(15.0, 15.0, 3)],
             starters: 2,
-            groups: vec![],
+            undroppable: vec![],
         };
-        assert!(toy.plan(0, 10, 2).is_empty());
-        // With an open spot the same add costs nothing, so it is recommended.
-        let plan = toy.plan(1, 10, 2);
+        assert!(toy.plan(0, 5).is_empty());
+        // With an open spot the add costs nothing, so it is recommended.
+        let plan = toy.plan(1, 5);
         assert_eq!(plan.len(), 1);
         assert_eq!(plan[0].drop, None);
     }
 
     #[test]
+    fn undroppable_players_are_never_cut() {
+        let toy = Toy {
+            mine: vec![(5.0, 5.0, 1), (0.0, 0.0, 1)],
+            free: vec![(10.0, 10.0, 1)],
+            starters: 1,
+            undroppable: vec![1],
+        };
+        let plan = toy.plan(0, 5);
+        assert_eq!(plan[0].drop, Some(Member::Mine(0)));
+    }
+
+    #[test]
     fn later_claims_assume_earlier_ones_succeeded() {
         let toy = Toy {
-            mine: vec![(2.0, 2.0), (1.0, 1.0)],
-            free: vec![(10.0, 10.0), (9.0, 9.0)],
+            mine: vec![(2.0, 2.0, 1), (1.0, 1.0, 2)],
+            free: vec![(10.0, 10.0, 1), (9.0, 9.0, 2)],
             starters: 2,
-            groups: vec![],
+            undroppable: vec![],
         };
-        let plan = toy.plan(0, 10, 0);
+        let plan = toy.plan(0, 5);
         assert_eq!(plan.len(), 2);
-        assert_eq!(plan[0].drop, Some(Member::Mine(1)));
-        // The second claim cannot reuse the first drop, and starts from the first's result.
-        assert_eq!(plan[1].drop, Some(Member::Mine(0)));
-        assert_eq!(plan[1].before, plan[0].after);
-    }
-
-    #[test]
-    fn respects_the_claim_limit_and_backup_count() {
-        let toy = Toy {
-            mine: vec![(1.0, 1.0)],
-            free: (0..6).map(|i| (10.0 - i as f64, 10.0 - i as f64)).collect(),
-            starters: 1,
-            groups: vec![],
-        };
-        let plan = toy.plan(0, 10, 1);
-        assert_eq!(plan.len(), 2); // one claim plus one backup
-        assert_eq!(toy.plan(0, 1, 3).len(), 1);
-    }
-
-    #[test]
-    fn a_different_position_is_its_own_claim_not_a_backup() {
-        // Two starters, two useless bench players; free agents at two positions.
-        let toy = Toy {
-            mine: vec![(5.0, 5.0), (4.0, 4.0), (0.5, 0.5), (0.4, 0.4)],
-            free: vec![(10.0, 10.0), (9.0, 9.0)],
-            starters: 2,
-            groups: vec![1, 2],
-        };
-        let plan = toy.plan(0, 10, 2);
-        assert_eq!(plan.len(), 2);
-        assert!(plan.iter().all(|c| c.backup_for.is_none()));
         assert_ne!(plan[0].drop, plan[1].drop);
+        assert_eq!(plan[1].before, plan[0].after);
+        assert_eq!(toy.plan(0, 1).len(), 1);
     }
 }
