@@ -9,6 +9,8 @@ on:
   schedule:
     - cron: '17 6 * * *'
   workflow_dispatch:
+  # Called by release.yml so a tag only publishes if the dependency policy passes.
+  workflow_call:
 
 permissions:
   contents: read

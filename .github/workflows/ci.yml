@@ -5,6 +5,8 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+  # Called by release.yml so a tag only publishes if CI passes on that exact commit.
+  workflow_call:
 
 # Read-only token: nothing in CI writes to the repository.
 permissions:

@@ -13,6 +13,16 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # Gate: re-run CI and the dependency policy on the tagged commit. Nothing is created or
+  # uploaded unless both pass, whichever branch (if any) the commit came through.
+  ci:
+    name: CI
+    uses: ./.github/workflows/ci.yml
+
+  security:
+    name: Security
+    uses: ./.github/workflows/security.yml
+
   validate-version:
     runs-on: ubuntu-latest
     steps:
@@ -42,7 +52,7 @@ jobs:
           echo "✅ Versions match!"
 
   create-release:
-    needs: validate-version
+    needs: [validate-version, ci, security]
     runs-on: ubuntu-latest
     permissions:
       contents: write
