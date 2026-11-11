@@ -11,7 +11,7 @@ A fast, reliable command-line tool for querying ESPN Fantasy Football player sta
 - **Query player stats** by name, position, team, injury/roster status
 - **Get actual or projected points** for any week and season
 - **Start/sit** - Your chance to win this week's matchup and the lineup moves that raise it
-- **Waiver targets** - Free agents ranked by how many points they add to your starting lineup
+- **Waiver claims** - The add/drop claims to submit this week, in priority order, with backups
 - **Projection analysis** - ESPN projections in your league's scoring, with historical accuracy
 - **Smart filtering** - Server-side filtering for performance
 - **Export data** as JSON for analysis or integration
@@ -94,7 +94,7 @@ espn-ffl player-data -p QB -p WR --week 2
 # Who to start this week, and your chance to win
 espn-ffl matchup --week 10
 
-# Free agents worth picking up, and who to drop
+# Waiver claims to submit this week, in priority order
 espn-ffl waivers --week 10
 ```
 
@@ -164,9 +164,9 @@ espn-ffl waivers --week 10
 Both take ESPN's weekly projections as each player's expected score. Backtests on 2025-26
 league data found nothing available here that reliably beats them, including correcting for
 a player's past misses (now off by default in `projection-analysis`). The edge comes from
-using them well: catching stale lineups, players on bye and ruled-out starters; judging
-pickups by how many points they add to your *starting lineup*, bye weeks included; and
-showing your real chance to win. See [CLI_REFERENCE.md](CLI_REFERENCE.md) for details.
+using them well: catching stale lineups, players on bye and ruled-out starters; ordering
+waiver claims by how much each raises your chance to win, without costing you later in the
+season; and showing your real chance to win. See [CLI_REFERENCE.md](CLI_REFERENCE.md) for details.
 
 ### Being a good API citizen
 

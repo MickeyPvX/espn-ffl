@@ -247,39 +247,52 @@ Players whose game has started are locked in place.
 
 ### `espn-ffl waivers`
 
-Free agents ranked by how much they would improve your team.
+The waiver claims to submit this week, in priority order.
 
 ```bash
 espn-ffl waivers --week 10
-espn-ffl waivers --week 10 -p RB -p WR --through-week 17
+espn-ffl waivers --week 10 -p RB -p WR --backups 3
 ```
 
-- `-w, --week <WEEK>` - First week to count (required; normally the upcoming week)
-- `--through-week <WEEK>` - Last week to count (defaults to the end of the regular season)
-- `-p, --position <POS>` - Only consider these positions (repeatable)
-- `--top <N>` - Recommendations to show (default: 15)
+- `-w, --week <WEEK>` - The week the claims are for (required; normally the upcoming week)
+- `--top <N>` - Maximum claims to list, backups included (default: 10)
+- `--backups <N>` - Backup claims under each claim (default: 2)
+- `-p, --position <POS>` - Only consider free agents at these positions (repeatable)
+- `--through-week <WEEK>` - Last week counted for a swap's season impact (default: end of the
+  regular season)
 - `--team <NAME>` / `--team-id <ID>`, `-l, --league-id`, `-s, --season`, `--refresh`, `--json`
 
-For each free agent (the top 12 per position by projected points), the command tries adding
-them and dropping each of your unlocked non-IR players (or using an open roster spot), and keeps
-the drop that leaves the strongest team. Columns:
+```text
+Waiver claims · week 10 · Kenny Rogers' Toasters vs Nick's Team
+Win chance with your best current lineup: 45.5%
 
-- `Wk Pts` / `ROS Pts` - ESPN's projection this week / over the evaluated weeks
-- `+Lineup` - projected points your **starting lineup** gains over the evaluated weeks. Bench
-  depth that would never start counts for nothing; covering a bye week or an injury counts fully.
-- `+Win` - change in your chance to win this week's matchup
-- `Drop` - who to cut; ties go to the player with the lowest projection
+ #  Add (proj)                       Drop (proj)                      Win chance           Season
+ 1  Dominic Zvada        K    10.8   Mack Hollins         WR   10.6   45.5% → 47.3% (+1.8)   +2.8
+ 2  Jason Sanders        K     9.9   Mack Hollins         WR   10.6   45.5% → 46.1% (+0.6)   +0.9  backup if #1 fails
+ 3  Andre Szmyt          K     9.5   Mack Hollins         WR   10.6   45.5% → 45.7% (+0.1)   +0.2  backup if #1 fails
+```
 
-"Free agent" means on no roster in your league; waiver-wire timing isn't modelled.
+How the list is built, matching how ESPN processes claims (in your submitted order,
+cancelling any claim whose drop player is already gone):
 
-### `espn-ffl league-data`
+1. The add/drop that most raises your chance of winning this week's matchup (with no matchup,
+   your projected lineup points). Win chances assume both teams start their best lineup.
+2. Backups for it: the next-best adds **at the same position** with the same drop. If the
+   claim above goes through, its drop player is gone and the backups cancel themselves.
+3. The best next move assuming the claims above succeeded, with its own backups, and so on.
 
-Cache league settings for faster subsequent queries.
+Guard rails:
 
-- `-l, --league-id <ID>` - League ID
-- `-s, --season <YEAR>` - Season year
-- `--refresh` - Force refresh settings
-- `--verbose` - Show detailed output
+- **Season**: projected starting-lineup points the swap gains through `--through-week`. A swap
+  that would cost season points is never suggested, so a one-week bump never comes from
+  dropping someone you need later. Among equally good drops, the player with the least
+  rest-of-season value goes first.
+- **Injured players (Q/D/O/IR) are never suggested as drops.** ESPN projects them at zero
+  while they are out, which says nothing about their value when they return.
+- Locked players (game started) are never dropped. Bench depth as injury insurance is not
+  valued, so check that a suggested drop isn't your only backup at a thin position.
+
+"Free agent" means on no roster in your league; your waiver priority isn't modelled.
 
 ## Examples
 
@@ -341,11 +354,11 @@ espn-ffl player-data -p WR --roster-status fa --injury-status active --week 1
 # Start/sit: who to play this week and your chance to win
 espn-ffl matchup --week 10
 
-# Best free-agent adds for the rest of the regular season
+# Waiver claims to submit this week, in priority order
 espn-ffl waivers --week 10
 
-# Just running backs, counting through the fantasy playoffs
-espn-ffl waivers --week 10 -p RB --through-week 17
+# Only RB claims, with three backups each, counting season impact through the playoffs
+espn-ffl waivers --week 10 -p RB --backups 3 --through-week 17
 ```
 
 ### Projection Analysis
