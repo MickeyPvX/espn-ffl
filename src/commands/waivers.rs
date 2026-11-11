@@ -6,17 +6,18 @@
 //! in order and cancels one whose drop player is already gone, so the backup only goes
 //! through if the claim above it failed.
 //!
-//! Guard rails: a swap is never offered if it would cost projected starting-lineup points over
-//! the rest of the regular season; injured players and players on bye are never suggested as
-//! drops (their projections this week say nothing about their value); and injured free
-//! agents, questionable included, are never suggested as adds.
+//! Guard rails: every claim keeps a full team (no starting slot the roster could fill before
+//! is left unfillable); a swap is never offered if it would cost projected starting-lineup
+//! points over the rest of the regular season; injured players and players on bye are never
+//! suggested as drops (their projections this week say nothing about their value); and free
+//! agents who are injured (questionable included) or on bye are never suggested as adds.
 
 use std::collections::{HashMap, HashSet};
 
 use serde::Serialize;
 
 use crate::{
-    cli::types::position::{SLOT_BENCH, SLOT_IR},
+    cli::types::position::{unfilled_slots, SLOT_BENCH, SLOT_IR},
     espn::{
         compute::infer_bye_week,
         http::{get_player_data, PlayerDataRequest},
@@ -78,8 +79,8 @@ struct PlannedClaim {
     drop: Option<Member>,
     before: RosterScore,
     after: RosterScore,
-    /// Fallback adds with the same drop, best first: each assumes `add` and the backups
-    /// above it were taken by other teams.
+    /// Fallback adds at the same position with the same drop, best first: each assumes `add`
+    /// and the backups above it were taken by other teams.
     backups: Vec<(usize, RosterScore)>,
 }
 
@@ -93,6 +94,16 @@ trait ClaimModel {
     /// Whether a free agent plays the same position as a roster member (like-for-like swap).
     fn same_position(&self, add: usize, member: Member) -> bool;
     fn score(&self, roster: &[Member]) -> RosterScore;
+    /// Starting slots the roster cannot fill by position (one entry per opening).
+    fn unfilled_slots(&self, roster: &[Member]) -> Vec<u8>;
+}
+
+/// Whether `after` leaves no starting slot unfillable that `before` could fill.
+fn keeps_full_team(before: &[u8], after: &[u8]) -> bool {
+    let count = |holes: &[u8], slot: u8| holes.iter().filter(|s| **s == slot).count();
+    after
+        .iter()
+        .all(|&slot| count(after, slot) <= count(before, slot))
 }
 
 /// Order two candidate results: better this week first, ties within [`WEEK_TIE`].
@@ -119,7 +130,7 @@ fn plan_claims(
     let mut current = model.score(&roster);
 
     // Result of adding `add` and dropping `drop` from the current roster, if the swap is
-    // allowed: it must not cost season points and must help this week.
+    // allowed: it must keep a full team, must not cost season points, and must help this week.
     let swap = |roster: &[Member], current: RosterScore, add: usize, drop: Option<Member>| {
         let mut next: Vec<Member> = roster
             .iter()
@@ -127,6 +138,9 @@ fn plan_claims(
             .filter(|m| Some(*m) != drop)
             .collect();
         next.push(Member::Free(add));
+        if !keeps_full_team(&model.unfilled_slots(roster), &model.unfilled_slots(&next)) {
+            return None;
+        }
         let after = model.score(&next);
         let allowed = after.season >= current.season - SEASON_TOLERANCE
             && after.week - current.week >= min_gain;
@@ -176,11 +190,11 @@ fn plan_claims(
             break;
         };
 
-        // Backups: the next-best adds with the same drop, for when the adds above them are
-        // claimed first by teams with higher waiver priority.
+        // Backups: the next-best adds at the same position with the same drop, standing in for
+        // `add` when it (and the backups above) are claimed first by higher-priority teams.
         let mut fallback: Vec<(usize, RosterScore)> = available
             .iter()
-            .filter(|&&b| b != add)
+            .filter(|&&b| b != add && model.same_position(add, Member::Free(b)))
             .filter_map(|&b| swap(&roster, current, b, drop).map(|after| (b, after)))
             .collect();
         fallback
@@ -275,6 +289,14 @@ impl ClaimModel for League<'_> {
             .map(|w| max_projection_lineup(&week_players(w), self.slots).mean)
             .sum();
         RosterScore { week, season }
+    }
+
+    fn unfilled_slots(&self, roster: &[Member]) -> Vec<u8> {
+        let positions: Vec<Position> = roster
+            .iter()
+            .map(|m| self.get(*m).weekly[0].position)
+            .collect();
+        unfilled_slots(self.slots, &positions)
     }
 }
 
@@ -450,8 +472,9 @@ pub async fn handle_waivers(params: WaiversParams) -> Result<()> {
                 on_bye,
             })
         })
-        // Any injury designation, questionable included, rules a free agent out.
-        .filter(|e| e.weekly[0].injury_status.is_none() && e.weekly[0].mean > 0.0)
+        // Any injury designation (questionable included) or a bye this week rules a free
+        // agent out.
+        .filter(|e| e.weekly[0].injury_status.is_none() && !e.on_bye && e.weekly[0].mean > 0.0)
         .collect();
     // Shortlist by this week's projection, then by the rest of the season.
     free.sort_by(|a, b| {
@@ -620,8 +643,8 @@ fn report_text(r: &WaiverReport) -> String {
         "Submit in this order: claim 1, its backups, claim 2, its backups, and so on. Backups drop\n\
          the same player as their claim, so ESPN cancels them once one goes through. Each claim\n\
          assumes the ones above it succeeded. Season: projected starting-lineup points gained\n\
-         through week {}. Injured and on-bye players are never suggested as drops; injured\n\
-         free agents (questionable included) are never suggested as adds.\n",
+         through week {}. Every claim keeps a full team. Injured and on-bye players are never\n\
+         suggested as drops or adds (questionable counts as injured).\n",
         r.through_week
     );
     out
@@ -638,6 +661,8 @@ mod tests {
         free: Vec<(f64, f64, u8)>,
         starters: usize,
         undroppable: Vec<usize>,
+        /// Positions the lineup needs one of each; a missing one is an unfilled slot.
+        required: Vec<u8>,
     }
 
     impl Toy {
@@ -684,6 +709,13 @@ mod tests {
                 season: top(|v| v.1),
             }
         }
+        fn unfilled_slots(&self, roster: &[Member]) -> Vec<u8> {
+            self.required
+                .iter()
+                .copied()
+                .filter(|pos| !roster.iter().any(|m| self.get(*m).2 == *pos))
+                .collect()
+        }
     }
 
     #[test]
@@ -700,6 +732,7 @@ mod tests {
             ],
             starters: 2,
             undroppable: vec![],
+            required: vec![],
         };
         let plan = toy.plan(0, 5);
         assert_eq!(plan.len(), 1);
@@ -719,6 +752,7 @@ mod tests {
             free: vec![(10.0, 10.0, 9)],
             starters: 1,
             undroppable: vec![],
+            required: vec![],
         };
         let plan = toy.plan(0, 5);
         assert_eq!(plan[0].drop, Some(Member::Mine(0)));
@@ -732,6 +766,7 @@ mod tests {
             free: vec![(15.0, 15.0, 3)],
             starters: 2,
             undroppable: vec![],
+            required: vec![],
         };
         assert!(toy.plan(0, 5).is_empty());
         // With an open spot the add costs nothing, so it is recommended.
@@ -747,6 +782,7 @@ mod tests {
             free: vec![(10.0, 10.0, 1)],
             starters: 1,
             undroppable: vec![1],
+            required: vec![],
         };
         let plan = toy.plan(0, 5);
         assert_eq!(plan[0].drop, Some(Member::Mine(0)));
@@ -759,11 +795,67 @@ mod tests {
             free: vec![(10.0, 10.0, 1), (9.0, 9.0, 2)],
             starters: 2,
             undroppable: vec![],
+            required: vec![],
         };
         let plan = toy.plan(0, 5);
         assert_eq!(plan.len(), 2);
         assert_ne!(plan[0].drop, plan[1].drop);
         assert_eq!(plan[1].before, plan[0].after);
         assert_eq!(toy.plan(0, 1).len(), 1);
+    }
+
+    #[test]
+    fn never_drops_the_only_player_at_a_required_position() {
+        // A kicker (pos 9) is required. He is the weakest player, but dropping him for a
+        // better WR (pos 3) would leave the kicker slot empty.
+        let toy = Toy {
+            mine: vec![(10.0, 10.0, 3), (2.0, 2.0, 9)],
+            free: vec![(12.0, 12.0, 3)],
+            starters: 1,
+            undroppable: vec![],
+            required: vec![3, 9],
+        };
+        let plan = toy.plan(0, 5);
+        assert_eq!(plan.len(), 1);
+        assert_eq!(plan[0].drop, Some(Member::Mine(0)));
+    }
+
+    #[test]
+    fn filling_an_existing_hole_is_allowed() {
+        // No kicker on the roster yet: adding one may drop anyone.
+        let toy = Toy {
+            mine: vec![(10.0, 10.0, 3), (1.0, 1.0, 3)],
+            free: vec![(8.0, 8.0, 9)],
+            starters: 2,
+            undroppable: vec![],
+            required: vec![3, 9],
+        };
+        let plan = toy.plan(0, 5);
+        assert_eq!(plan[0].drop, Some(Member::Mine(1)));
+    }
+
+    #[test]
+    fn keeps_full_team_compares_holes_per_slot() {
+        assert!(keeps_full_team(&[], &[]));
+        assert!(keeps_full_team(&[17], &[]));
+        assert!(!keeps_full_team(&[], &[17]));
+        // Trading one hole for a different one is not allowed either.
+        assert!(!keeps_full_team(&[0], &[17]));
+        assert!(keeps_full_team(&[2, 2], &[2]));
+    }
+
+    #[test]
+    fn backups_stand_in_for_the_same_position() {
+        // Free agent 1 (another position) helps with the same drop but is no substitute.
+        let toy = Toy {
+            mine: vec![(20.0, 20.0, 1), (1.0, 1.0, 2)],
+            free: vec![(12.0, 12.0, 4), (11.0, 11.0, 5), (9.0, 9.0, 4)],
+            starters: 2,
+            undroppable: vec![],
+            required: vec![],
+        };
+        let plan = toy.plan(0, 1);
+        let backups: Vec<usize> = plan[0].backups.iter().map(|b| b.0).collect();
+        assert_eq!(backups, vec![2]);
     }
 }

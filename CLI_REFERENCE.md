@@ -283,20 +283,23 @@ cancelling any claim whose drop player is already gone):
 1. Each claim is the add/drop that most raises your chance of winning this week's matchup
    (with no matchup, your projected lineup points), assuming the claims above it went through.
    Win chances assume both teams start their best lineup.
-2. Its backups are the next-best adds **with the same drop**, each assuming the adds above it
-   were taken by teams with higher priority. Because they drop the same player, ESPN cancels
+2. Its backups are the next-best adds **at the same position, with the same drop**, each
+   standing in for the adds above it if those were taken by teams with higher priority. Because they drop the same player, ESPN cancels
    them once one of them goes through.
 3. Submit claim 1, its backups, claim 2, its backups, and so on.
 
 Guard rails:
 
+- **Full team**: no claim leaves a starting slot the roster can't fill (you'll never be told
+  to drop your only kicker for a receiver). A claim may fill a slot that was already empty.
 - **Season**: projected starting-lineup points the swap gains through `--through-week`. A swap
   that would cost season points is never suggested, so a one-week bump never comes from
   dropping someone you need later (or from leaving a later bye week uncovered).
 - **Drops**: like-for-like swaps are preferred when they're just as good this week; otherwise
   the player with the least rest-of-season value goes first. Injured players (Q/D/O/IR),
   players on bye this week and locked players are never suggested as drops.
-- **Adds**: injured free agents, questionable included, are never suggested.
+- **Adds**: free agents who are injured (questionable included) or on bye this week are
+  never suggested.
 - Bench depth as injury insurance is not valued, so check that a suggested drop isn't your
   only backup at a thin position.
 

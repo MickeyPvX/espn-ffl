@@ -32,7 +32,7 @@ use crate::{
 };
 
 use super::{common::scoring_slot_id, league_data::resolve_league_id};
-use crate::cli::types::position::{lineup_slot_label as slot_label, slot_flexibility};
+use crate::cli::types::position::{lineup_slot_label as slot_label, unfilled_slots};
 
 /// Default number of players to pull from ESPN for the board.
 ///
@@ -1579,27 +1579,7 @@ fn classify_outlook(survival_margin: Option<f64>, team_count: usize) -> Outlook 
 /// Slots are filled tightest-first: a flex-eligible player claimed by the flex spot would
 /// otherwise leave a dedicated RB or WR slot open that only he could have filled.
 fn remaining_needs(settings: &LeagueSettings, roster: &[Position]) -> Vec<u8> {
-    // One entry per startable slot, tightest slot first.
-    let mut slots: Vec<u8> = settings
-        .starting_lineup_slots()
-        .into_iter()
-        .flat_map(|(slot, count)| std::iter::repeat_n(slot, count as usize))
-        .collect();
-    slots.sort_by_key(|slot| (slot_flexibility(*slot), *slot));
-
-    let mut claimed = vec![false; roster.len()];
-    let mut needs = Vec::new();
-    for slot in slots {
-        let filler = roster
-            .iter()
-            .enumerate()
-            .find(|(i, position)| !claimed[*i] && position.fills_slot(slot));
-        match filler {
-            Some((i, _)) => claimed[i] = true,
-            None => needs.push(slot),
-        }
-    }
-    needs
+    unfilled_slots(&settings.starting_lineup_slots(), roster)
 }
 
 /// Render the board as a table.
@@ -1826,6 +1806,7 @@ fn recommendations_text(recs: &[Recommendation], live: Option<&LiveDraftState>) 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cli::types::position::slot_flexibility;
 
     #[test]
     fn slot_aware_match_treats_flex_as_rb_wr_te() {
