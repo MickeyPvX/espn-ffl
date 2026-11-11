@@ -17,7 +17,7 @@ use crate::{
     espn::{
         cache_settings::load_or_fetch_league_settings,
         compute::{
-            build_scoring_index, compute_points_for_week, projected_weeks, select_season_stats,
+            build_scoring_index, compute_points_for_week, infer_bye_week, select_season_stats,
         },
         draft::{get_draft_detail, DraftResponse},
         http::get_draft_pool,
@@ -32,7 +32,7 @@ use crate::{
 };
 
 use super::{common::scoring_slot_id, league_data::resolve_league_id};
-use crate::cli::types::position::{lineup_slot_label as slot_label, slot_flexibility};
+use crate::cli::types::position::{lineup_slot_label as slot_label, unfilled_slots};
 
 /// Default number of players to pull from ESPN for the board.
 ///
@@ -1251,23 +1251,6 @@ fn slot_aware_match(filter: Position, position: Position) -> bool {
     }
 }
 
-/// Infer a player's bye week from the gap in ESPN's weekly projections.
-///
-/// ESPN emits a projection block for every week of the season but leaves it empty on the
-/// bye, so the missing week in an otherwise complete run is the bye.
-fn infer_bye_week(player_value: &serde_json::Value, season: u16) -> Option<u16> {
-    let weeks = projected_weeks(player_value, season);
-    if weeks.is_empty() {
-        return None;
-    }
-
-    let first = *weeks.first()?;
-    let last = *weeks.last()?;
-    let present: HashSet<u16> = weeks.into_iter().collect();
-
-    (first..=last).find(|w| !present.contains(w))
-}
-
 /// Picks tracked outside ESPN's feed, from a file or typed in interactively.
 #[derive(Debug, Default, Clone)]
 struct FilePicks {
@@ -1596,27 +1579,7 @@ fn classify_outlook(survival_margin: Option<f64>, team_count: usize) -> Outlook 
 /// Slots are filled tightest-first: a flex-eligible player claimed by the flex spot would
 /// otherwise leave a dedicated RB or WR slot open that only he could have filled.
 fn remaining_needs(settings: &LeagueSettings, roster: &[Position]) -> Vec<u8> {
-    // One entry per startable slot, tightest slot first.
-    let mut slots: Vec<u8> = settings
-        .starting_lineup_slots()
-        .into_iter()
-        .flat_map(|(slot, count)| std::iter::repeat_n(slot, count as usize))
-        .collect();
-    slots.sort_by_key(|slot| (slot_flexibility(*slot), *slot));
-
-    let mut claimed = vec![false; roster.len()];
-    let mut needs = Vec::new();
-    for slot in slots {
-        let filler = roster
-            .iter()
-            .enumerate()
-            .find(|(i, position)| !claimed[*i] && position.fills_slot(slot));
-        match filler {
-            Some((i, _)) => claimed[i] = true,
-            None => needs.push(slot),
-        }
-    }
-    needs
+    unfilled_slots(&settings.starting_lineup_slots(), roster)
 }
 
 /// Render the board as a table.
@@ -1843,37 +1806,7 @@ fn recommendations_text(recs: &[Recommendation], live: Option<&LiveDraftState>) 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn infer_bye_week_finds_the_missing_week() {
-        // Weeks 1-5 projected, week 3 empty => bye in week 3.
-        let stats: Vec<serde_json::Value> = (1..=5)
-            .map(|w| {
-                let inner = if w == 3 {
-                    json!({})
-                } else {
-                    json!({"53": 5.0})
-                };
-                json!({
-                    "seasonId": 2026,
-                    "scoringPeriodId": w,
-                    "statSourceId": 1,
-                    "statSplitTypeId": 1,
-                    "stats": inner,
-                })
-            })
-            .collect();
-
-        let player = json!({ "stats": stats });
-        assert_eq!(infer_bye_week(&player, 2026), Some(3));
-    }
-
-    #[test]
-    fn infer_bye_week_is_none_without_projections() {
-        let player = json!({ "stats": [] });
-        assert_eq!(infer_bye_week(&player, 2026), None);
-    }
+    use crate::cli::types::position::slot_flexibility;
 
     #[test]
     fn slot_aware_match_treats_flex_as_rb_wr_te() {

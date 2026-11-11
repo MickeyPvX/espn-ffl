@@ -196,6 +196,33 @@ pub fn slot_flexibility(slot: u8) -> usize {
     CANDIDATES.iter().filter(|p| p.fills_slot(slot)).count()
 }
 
+/// Starting slots (one entry per opening, tightest first) that `roster` cannot fill.
+///
+/// Filled by position alone, ignoring who is healthy or projected to score: this is about
+/// roster composition. Slots are filled tightest-first, so a flex-eligible player claimed by
+/// the flex spot never leaves a dedicated RB or WR slot open that only he could have filled.
+pub fn unfilled_slots(slots: &std::collections::BTreeMap<u8, u32>, roster: &[Position]) -> Vec<u8> {
+    let mut openings: Vec<u8> = slots
+        .iter()
+        .flat_map(|(&slot, &count)| std::iter::repeat_n(slot, count as usize))
+        .collect();
+    openings.sort_by_key(|slot| (slot_flexibility(*slot), *slot));
+
+    let mut claimed = vec![false; roster.len()];
+    let mut needs = Vec::new();
+    for slot in openings {
+        let filler = roster
+            .iter()
+            .enumerate()
+            .find(|(i, position)| !claimed[*i] && position.fills_slot(slot));
+        match filler {
+            Some((i, _)) => claimed[i] = true,
+            None => needs.push(slot),
+        }
+    }
+    needs
+}
+
 /// Human-readable name for a lineup slot id.
 pub fn lineup_slot_label(slot: u8) -> String {
     match slot {

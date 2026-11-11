@@ -269,12 +269,14 @@ pub enum Commands {
         debug: bool,
     },
 
-    /// Rank free agents by how much they would improve your team.
+    /// Waiver claims to submit this week, in priority order.
     ///
-    /// Each free agent is scored by adding them and dropping whichever of your players costs
-    /// the least: the projected points your starting lineup gains over the rest of the
-    /// regular season (bench depth and bye weeks included), and the change in your chance
-    /// to win this week's matchup.
+    /// Each claim is the add/drop that most raises your chance of winning this week's
+    /// matchup (assuming the claims above it went through), with a backup in case its free
+    /// agent is taken first. The backup drops the same player, so ESPN cancels it if the claim
+    /// succeeds. Swaps that would cost projected starting-lineup points over the rest of the
+    /// season are never suggested, nor are drops of injured or on-bye players, or adds of
+    /// injured free agents (questionable included).
     Waivers {
         /// League ID (or set `ESPN_FFL_LEAGUE_ID` env var).
         #[clap(long, short)]
@@ -284,11 +286,12 @@ pub enum Commands {
         #[clap(long, short, default_value_t = Season::default())]
         season: Season,
 
-        /// First week to count (normally the upcoming week).
+        /// The week the claims are for (normally the upcoming week).
         #[clap(long, short)]
         week: Week,
 
-        /// Last week to count. Defaults to the end of the regular season.
+        /// Last week counted when checking a swap's season impact. Defaults to the end of
+        /// the regular season.
         #[clap(long)]
         through_week: Option<Week>,
 
@@ -296,9 +299,13 @@ pub enum Commands {
         #[clap(short = 'p', long = "position", value_parser = clap::value_parser!(Position))]
         positions: Option<Vec<Position>>,
 
-        /// Number of recommendations to show.
-        #[clap(long, default_value_t = 15)]
+        /// Maximum number of claims to list.
+        #[clap(long, default_value_t = 5)]
         top: usize,
+
+        /// Backup claims under each claim, for when its free agent is taken first.
+        #[clap(long, default_value_t = 1)]
+        backups: usize,
 
         /// Your fantasy team name (partial match). Defaults to the team owned by ESPN_SWID.
         #[clap(long)]
