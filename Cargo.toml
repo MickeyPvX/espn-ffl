@@ -11,7 +11,7 @@ dirs = "7.0.0"
 lru = "0.19"
 rayon = "1.12"
 reqwest = { version = "0.13", features = ["json", "query", "rustls"], default-features = false }
-rusqlite = { version = "0.41", features = ["bundled"] }
+rusqlite = { version = "0.43", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
